@@ -1,0 +1,126 @@
+// internal/api/router.go
+package api
+
+import (
+	"net/http"
+	"payflow/internal/api/handler"
+	"payflow/internal/api/middleware"
+	"payflow/internal/config"
+	"payflow/internal/domain"
+	"payflow/internal/service"
+
+	"github.com/go-chi/chi/v5"
+	"github.com/go-chi/cors"
+)
+
+// NewRouter initializes and returns the main application router.
+// It takes the application config and all required services as dependencies.
+func NewRouter(
+	cfg *config.Config,
+	authSvc service.AuthService,
+	employeeSvc service.EmployeeService,
+	cadreSvc service.CadreService,
+	deductionSvc service.DeductionRuleService,
+	payrollSvc service.PayrollService,
+) http.Handler {
+	r := chi.NewRouter()
+
+	// --- Global Middleware ---
+	// A more secure CORS policy for production would be:
+	// AllowedOrigins: []string{"https://app.payflow.com", "https://www.payflow.com"}
+	r.Use(cors.Handler(cors.Options{
+		AllowedOrigins:   []string{"http://*", "https://*"}, // Permissive for local dev
+		AllowedMethods:   []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
+		AllowedHeaders:   []string{"Accept", "Authorization", "Content-Type", "X-CSRF-Token"},
+		ExposedHeaders:   []string{"Link"},
+		AllowCredentials: true,
+		MaxAge:           300,
+	}))
+
+	// --- Handler Initialization ---
+	// Instantiate all handlers here to keep the routing section clean.
+	authHandler := handler.NewAuthHandler(authSvc)
+	employeeHandler := handler.NewEmployeeHandler(employeeSvc)
+	cadreHandler := handler.NewCadreHandler(cadreSvc)
+	deductionHandler := handler.NewDeductionRuleHandler(deductionSvc)
+	payrollHandler := handler.NewPayrollHandler(payrollSvc)
+
+	// --- Public Routes ---
+	// No authentication required for these endpoints.
+	r.Route("/v1/auth", func(r chi.Router) {
+		r.Post("/register", authHandler.RegisterBusiness)
+		r.Post("/login", authHandler.Login)
+		// r.Post("/forgot-password", authHandler.ForgotPassword)
+		// r.Post("/reset-password", authHandler.ResetPassword)
+	})
+
+	// --- Protected API v1 Group ---
+	// All routes within this group require a valid JWT.
+	r.Route("/v1", func(r chi.Router) {
+		r.Use(middleware.AuthMiddleware(cfg.JWTSecret))
+
+		// --- Admin & Operator Routes ---
+		// These routes are for day-to-day operations.
+		r.Group(func(r chi.Router) {
+			r.Use(middleware.RoleMiddleware(domain.RoleAdmin, domain.RoleOperator))
+
+			// Employee Management
+			r.Route("/employees", func(r chi.Router) {
+				r.Post("/", employeeHandler.CreateEmployee)
+				r.Get("/", employeeHandler.ListEmployees)
+				r.Get("/{employeeID}", employeeHandler.GetEmployeeByID)
+				r.Put("/{employeeID}", employeeHandler.UpdateEmployee)
+				r.Patch("/{employeeID}/deactivate", employeeHandler.DeactivateEmployee) // Use PATCH for partial updates/state changes
+			})
+
+			// Cadre (Salary Structure) Management
+			r.Route("/cadres", func(r chi.Router) {
+				r.Post("/", cadreHandler.CreateCadre)
+				r.Get("/", cadreHandler.ListCadres)
+				r.Get("/{cadreID}", cadreHandler.GetCadreByID)
+				r.Put("/{cadreID}", cadreHandler.UpdateCadre)
+				r.Delete("/{cadreID}", cadreHandler.DeleteCadre)
+			})
+
+			// Payroll Workflow - Actions for Operators
+			r.Route("/payroll-runs", func(r chi.Router) {
+				r.Post("/", payrollHandler.CreatePayrollRun)
+				r.Get("/", payrollHandler.ListPayrollRuns)
+				r.Get("/{runID}", payrollHandler.GetPayrollRunByID)
+				r.Post("/{runID}/submit", payrollHandler.SubmitForApproval)
+			})
+		})
+
+		// --- Admin-Only Routes ---
+		// These routes are for company-level configuration.
+		r.Group(func(r chi.Router) {
+			r.Use(middleware.RoleMiddleware(domain.RoleAdmin))
+
+			// Deduction Rule Management
+			r.Route("/deduction-rules", func(r chi.Router) {
+				r.Post("/", deductionHandler.CreateDeductionRule)
+				r.Get("/", deductionHandler.ListDeductionRules)
+				r.Put("/{ruleID}", deductionHandler.UpdateDeductionRule)
+				r.Delete("/{ruleID}", deductionHandler.DeleteDeductionRule)
+			})
+
+			// User/Team Management could go here
+			// r.Route("/users", ...)
+		})
+
+		// --- Approver Routes ---
+		// These routes are for the financial sign-off part of the workflow.
+		// Admins often double as approvers, so they need access too.
+		r.Group(func(r chi.Router) {
+			r.Use(middleware.RoleMiddleware(domain.RoleAdmin, domain.RoleApprover))
+
+			// Payroll Workflow - Actions for Approvers
+			r.Route("/payroll-runs", func(r chi.Router) {
+				r.Post("/{runID}/approve", payrollHandler.ApprovePayrollRun)
+				r.Post("/{runID}/reject", payrollHandler.RejectPayrollRun)
+			})
+		})
+	})
+
+	return r
+}

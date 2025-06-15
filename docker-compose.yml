@@ -1,0 +1,48 @@
+# docker-compose.yml
+
+version: '3.8'
+
+services:
+  db:
+    image: postgres:15-alpine
+    container_name: payflow_db
+    environment:
+      POSTGRES_USER: payflow_user
+      POSTGRES_PASSWORD: payflow_secret
+      POSTGRES_DB: payflow_db
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U payflow_user -d payflow_db"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  mailhog:
+    image: mailhog/mailhog
+    container_name: payflow_mailhog
+    ports:
+      - "1025:1025" # SMTP server
+      - "8025:8025" # Web UI
+
+  # This service is for running the app locally for development
+  # It mounts the code, so you get hot-reloading with a tool like air
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile.dev
+    container_name: payflow_app
+    ports:
+      - "8080:8080"
+    volumes:
+      - .:/app
+    depends_on:
+      db:
+        condition: service_healthy
+    env_file:
+      - .env
+
+volumes:
+  postgres_data:
