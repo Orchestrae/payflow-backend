@@ -16,36 +16,36 @@ const (
 )
 
 type PayrollRun struct {
-	ID               uint
-	BusinessID       uint
-	Period           time.Time // e.g., 2025-06-01 for June 2025 payroll
-	Status           PayrollStatus
-	TotalGrossPay    int64
-	TotalDeductions  int64
-	TotalNetPay      int64
-	ScheduledFor     time.Time // The date for disbursement
+	ID               uint          `gorm:"primaryKey;autoIncrement"`
+	BusinessID       uint          `gorm:"index"`
+	Period           time.Time     `gorm:"index"` // e.g., 2025-06-01 for June 2025 payroll
+	Status           PayrollStatus `gorm:"type:varchar(20);default:'draft'"`
+	TotalGrossPay    int64         `gorm:"default:0"`
+	TotalDeductions  int64         `gorm:"default:0"`
+	TotalNetPay      int64         `gorm:"default:0"`
+	ScheduledFor     time.Time     `gorm:""` // The date for disbursement
 	ProcessedAt      *time.Time
-	PaymentReference string
-	RejectionReason  string
-	CreatedAt        time.Time
-	UpdatedAt        time.Time
+	PaymentReference string    `gorm:"size:255"`
+	RejectionReason  string    `gorm:"size:500"`
+	CreatedAt        time.Time `gorm:"autoCreateTime"`
+	UpdatedAt        time.Time `gorm:"autoUpdateTime"`
 
-	// Relational fields
-	Entries []PayrollRunEntry
+	// Relationships
+	Entries []PayrollRunEntry `gorm:"foreignKey:PayrollRunID"`
 }
 
 type PayrollRunEntry struct {
-	ID              uint
-	PayrollRunID    uint
-	EmployeeID      uint
-	GrossPay        int64
-	TotalDeductions int64
-	Bonuses         int64
-	NetPay          int64
+	ID              uint  `gorm:"primaryKey;autoIncrement"`
+	PayrollRunID    uint  `gorm:"index"`
+	EmployeeID      uint  `gorm:"index"`
+	GrossPay        int64 `gorm:"default:0"`
+	TotalDeductions int64 `gorm:"default:0"`
+	Bonuses         int64 `gorm:"default:0"`
+	NetPay          int64 `gorm:"default:0"`
 
-	// Relational fields
-	Employee *Employee
-	Details  []PayrollRunEntryDetail
+	// Relationships
+	Employee *Employee               `gorm:"foreignKey:EmployeeID"`
+	Details  []PayrollRunEntryDetail `gorm:"foreignKey:PayrollRunEntryID"`
 }
 
 type PayrollEntryDetailType string
@@ -57,9 +57,9 @@ const (
 )
 
 type PayrollRunEntryDetail struct {
-	ID                uint
-	PayrollRunEntryID uint
-	Type              PayrollEntryDetailType
-	Name              string
-	Amount            int64 // Always a positive value
+	ID                uint                   `gorm:"primaryKey;autoIncrement"`
+	PayrollRunEntryID uint                   `gorm:"index"`
+	Type              PayrollEntryDetailType `gorm:"type:varchar(20)"`
+	Name              string                 `gorm:"size:255"`
+	Amount            int64                  `gorm:""` // Always a positive value
 }

@@ -2,27 +2,29 @@
 package domain
 
 import (
-	"gorm.io/gorm"
 	"time"
+
+	"gorm.io/gorm"
 )
 
 type Cadre struct {
-	ID         uint
-	BusinessID uint
-	Name       string
-	CreatedAt  time.Time
-	UpdatedAt  time.Time
+	ID         uint      `gorm:"primaryKey;autoIncrement"`
+	BusinessID uint      `gorm:"index"`
+	Name       string    `gorm:"size:255"`
+	CreatedAt  time.Time `gorm:"autoCreateTime"`
+	UpdatedAt  time.Time `gorm:"autoUpdateTime"`
 
-	// Relational fields
-	EarningComponents []EarningComponent
-	DeductionRules    []DeductionRule
+	// Relationships
+	EarningComponents []EarningComponent `gorm:"foreignKey:CadreID"`
+	DeductionRules    []DeductionRule    `gorm:"foreignKey:CadreID"`
+	Employees         []Employee         `gorm:"foreignKey:CadreID"`
 }
 
 type EarningComponent struct {
-	ID      uint
-	CadreID uint
-	Name    string
-	Amount  int64 // Use int64 for monetary values to avoid float inaccuracies
+	ID      uint   `gorm:"primaryKey;autoIncrement"`
+	CadreID uint   `gorm:"index"`
+	Name    string `gorm:"size:255"`
+	Amount  int64  `gorm:""` // Use int64 for monetary values to avoid float inaccuracies
 }
 
 type DeductionRuleType string
@@ -40,10 +42,14 @@ const (
 )
 
 type DeductionRule struct {
-	gorm.Model
-	BusinessID       uint
-	Name             string
-	Type             DeductionRuleType
-	Value            float64 // Percentage (e.g., 7.5) or Flat Amount in smallest currency unit
-	CalculationBasis CalculationBasis
+	ID               uint              `gorm:"primaryKey;autoIncrement"`
+	BusinessID       uint              `gorm:"index"`
+	CadreID          uint              `gorm:"index"` // Optional: can be linked to specific cadre or global
+	Name             string            `gorm:"size:255"`
+	Type             DeductionRuleType `gorm:"type:varchar(20)"`
+	Value            float64           `gorm:""` // Percentage (e.g., 7.5) or Flat Amount in smallest currency unit
+	CalculationBasis CalculationBasis  `gorm:"type:varchar(20)"`
+	CreatedAt        time.Time         `gorm:"autoCreateTime"`
+	UpdatedAt        time.Time         `gorm:"autoUpdateTime"`
+	DeletedAt        gorm.DeletedAt    `gorm:"index"`
 }

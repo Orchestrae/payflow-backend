@@ -4,12 +4,13 @@ package domain
 import "time"
 
 type Business struct {
-	ID        uint
-	AdminID   uint
-	Name      string
-	CreatedAt time.Time
-	UpdatedAt time.Time
+	ID        uint      `gorm:"primaryKey;autoIncrement"`
+	AdminID   uint      `gorm:"index"`
+	Name      string    `gorm:"size:255"`
+	CreatedAt time.Time `gorm:"autoCreateTime"`
+	UpdatedAt time.Time `gorm:"autoUpdateTime"`
 
-	// Relational fields (optional but useful)
-	Admin *User
+	// Relationships (without foreign key constraints to avoid circular dependency)
+	Admin *User  `gorm:"-"`
+	Users []User `gorm:"-"`
 }

@@ -56,7 +56,8 @@ func (s *authService) RegisterBusiness(ctx context.Context, name, email, passwor
 
 	// 2. Create the business record first (without an AdminID yet)
 	business := &domain.Business{Name: name}
-	if err := s.businessRepo.Create(ctx, business); err != nil {
+	businessRepoTx := s.businessRepo.WithTx(tx)
+	if err := businessRepoTx.Create(ctx, business); err != nil {
 		s.txer.Rollback(tx)
 		if err == domain.ErrConflict { // Assuming repo can detect this
 			return nil, err
@@ -74,7 +75,7 @@ func (s *authService) RegisterBusiness(ctx context.Context, name, email, passwor
 	}
 
 	// Use a specific user repository that is aware of the transaction
-	userRepoTx := s.userRepo.WithTx(tx) // We need to add this method to our repo interface
+	userRepoTx := s.userRepo.WithTx(tx)
 	if err := userRepoTx.Create(ctx, adminUser); err != nil {
 		s.txer.Rollback(tx)
 		if err == domain.ErrConflict {
@@ -85,7 +86,7 @@ func (s *authService) RegisterBusiness(ctx context.Context, name, email, passwor
 
 	// 4. Update the business with the new admin's ID
 	business.AdminID = adminUser.ID
-	if err := s.businessRepo.Update(ctx, business); err != nil { // Need to add Update to repo
+	if err := businessRepoTx.Update(ctx, business); err != nil {
 		s.txer.Rollback(tx)
 		return nil, fmt.Errorf("could not link admin to business: %w", err)
 	}
