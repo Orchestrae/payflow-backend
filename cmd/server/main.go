@@ -30,6 +30,8 @@ func main() {
 		log.Fatal().Err(err).Msg("Failed to load configuration")
 	}
 
+	log.Info().Msgf("JWT Secret: %s", cfg.JWTSecret)
+
 	if cfg.LogPretty {
 		log.Logger = log.Output(zerolog.ConsoleWriter{Out: os.Stderr, TimeFormat: time.RFC3339})
 	}
@@ -40,11 +42,11 @@ func main() {
 	log.Info().Msg("PayFlow server starting up...")
 
 	// --- Phase 2: Platform & Repository Initialization ---
-	db, err := database.NewPostgresDB(cfg.DatabaseURL)
+	db, err := database.InitializeDatabase(cfg.DatabaseURL)
 	if err != nil {
-		log.Fatal().Err(err).Msg("Failed to connect to database")
+		log.Fatal().Err(err).Msg("Failed to initialize database")
 	}
-	log.Info().Msg("Database connection established")
+	log.Info().Msg("Database initialized and automigration completed")
 
 	// Repositories
 	txer := postgres.NewTransactioner(db)

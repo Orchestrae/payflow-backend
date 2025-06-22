@@ -14,7 +14,7 @@ all: build
 # Runs the application using go run
 run:
 	@echo "Running application..."
-	@go run $(MAIN_PATH)
+	@go run cmd/server/main.go
 
 # Builds the application binary
 build:

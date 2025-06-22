@@ -82,12 +82,19 @@ func NewRouter(
 				r.Delete("/{cadreID}", cadreHandler.DeleteCadre)
 			})
 
-			// Payroll Workflow - Actions for Operators
+			// Payroll Workflow - Actions for Operators and Approvers
 			r.Route("/payroll-runs", func(r chi.Router) {
 				r.Post("/", payrollHandler.CreatePayrollRun)
 				r.Get("/", payrollHandler.ListPayrollRuns)
 				r.Get("/{runID}", payrollHandler.GetPayrollRunByID)
 				r.Post("/{runID}/submit", payrollHandler.SubmitForApproval)
+
+				// Approver-specific routes (Admin and Approver roles)
+				r.Group(func(r chi.Router) {
+					r.Use(middleware.RoleMiddleware(domain.RoleAdmin, domain.RoleApprover))
+					r.Post("/{runID}/approve", payrollHandler.ApprovePayrollRun)
+					r.Post("/{runID}/reject", payrollHandler.RejectPayrollRun)
+				})
 			})
 		})
 
@@ -106,19 +113,6 @@ func NewRouter(
 
 			// User/Team Management could go here
 			// r.Route("/users", ...)
-		})
-
-		// --- Approver Routes ---
-		// These routes are for the financial sign-off part of the workflow.
-		// Admins often double as approvers, so they need access too.
-		r.Group(func(r chi.Router) {
-			r.Use(middleware.RoleMiddleware(domain.RoleAdmin, domain.RoleApprover))
-
-			// Payroll Workflow - Actions for Approvers
-			r.Route("/payroll-runs", func(r chi.Router) {
-				r.Post("/{runID}/approve", payrollHandler.ApprovePayrollRun)
-				r.Post("/{runID}/reject", payrollHandler.RejectPayrollRun)
-			})
 		})
 	})
 

@@ -3,6 +3,7 @@ package middleware
 
 import (
 	"context"
+	"log"
 	"net/http"
 	"payflow/internal/api/response"
 	"payflow/internal/domain"
@@ -40,12 +41,19 @@ func AuthMiddleware(jwtSecret string) func(http.Handler) http.Handler {
 				return
 			}
 
+			// Debug logging
+			log.Printf("Validating token: %s", tokenString[:20]+"...")
+			log.Printf("Using JWT secret: %s", jwtSecret[:20]+"...")
+
 			// Use the JWT util to validate
 			validatedClaims, err := utils.ValidateToken(tokenString, jwtSecret)
 			if err != nil {
+				log.Printf("Token validation failed: %v", err)
 				response.RespondWithError(w, domain.ErrUnauthorized)
 				return
 			}
+
+			log.Printf("Token validation successful for user: %s", validatedClaims.UserID)
 
 			// Parse claims into a structured, typed object for the context.
 			userID, _ := strconv.ParseUint(validatedClaims.UserID, 10, 32)
@@ -73,7 +81,7 @@ func GetClaimsFromContext(ctx context.Context) (*Claims, bool) {
 func RoleMiddleware(allowedRoles ...domain.UserRole) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			claims, ok := r.Context().Value(UserClaimsKey).(*utils.Claims)
+			claims, ok := r.Context().Value(UserClaimsKey).(*Claims)
 			if !ok {
 				// This should not happen if AuthMiddleware is used before it.
 				response.RespondWithError(w, domain.ErrInternalServer)
@@ -81,7 +89,7 @@ func RoleMiddleware(allowedRoles ...domain.UserRole) func(http.Handler) http.Han
 			}
 
 			for _, allowedRole := range allowedRoles {
-				if domain.UserRole(claims.Role) == allowedRole {
+				if claims.Role == allowedRole {
 					next.ServeHTTP(w, r)
 					return
 				}

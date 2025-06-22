@@ -4,6 +4,7 @@ package handler
 import (
 	"encoding/json"
 	"github.com/go-playground/validator/v10"
+	"log/slog"
 	"net/http"
 	"payflow/internal/api/request"
 	"payflow/internal/api/response"
@@ -26,18 +27,21 @@ func NewAuthHandler(authSvc service.AuthService) *AuthHandler {
 func (h *AuthHandler) RegisterBusiness(w http.ResponseWriter, r *http.Request) {
 	var req request.RegisterRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		slog.Error("Failed to decode request body", "error", err)
 		response.RespondWithError(w, domain.ErrValidationFailed) // Bad JSON format
 		return
 	}
 
 	if err := h.validate.Struct(req); err != nil {
 		// Handle validation errors more gracefully in a real app
+		slog.Error("Validation failed", "error", err)
 		response.RespondWithError(w, domain.ErrValidationFailed)
 		return
 	}
 
 	user, err := h.authService.RegisterBusiness(r.Context(), req.BusinessName, req.Email, req.Password)
 	if err != nil {
+		slog.Error("Failed to register business", "error", err)
 		response.RespondWithError(w, err)
 		return
 	}

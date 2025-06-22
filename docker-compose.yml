@@ -32,7 +32,7 @@ services:
   app:
     build:
       context: .
-      dockerfile: Dockerfile.dev
+      dockerfile: Dockerfile
     container_name: payflow_app
     ports:
       - "8080:8080"
@@ -41,8 +41,16 @@ services:
     depends_on:
       db:
         condition: service_healthy
-    env_file:
-      - .env
+    environment:
+      - DB_URL=postgres://payflow_user:payflow_secret@db:5432/payflow_db?sslmode=disable
+      - SERVER_PORT=8080
+      - LOG_LEVEL=debug
+      - LOG_PRETTY=true
+      - JWT_SECRET=a-very-secret-and-strong-key-that-is-at-least-32-chars-long
+      - JWT_EXPIRATION_HOURS=72h
+      - KORAPAY_API_KEY=
+      - KORAPAY_PUBLIC_KEY=
+      - KORAPAY_BASE_URL=https://api.korapay.com/v1
 
 volumes:
   postgres_data:

@@ -14,12 +14,15 @@ const (
 )
 
 type User struct {
-	ID           uint
-	BusinessID   uint
-	Email        string
-	PasswordHash string
-	Role         UserRole
-	IsVerified   bool
-	CreatedAt    time.Time
-	UpdatedAt    time.Time
+	ID           uint      `gorm:"primaryKey;autoIncrement"`
+	BusinessID   uint      `gorm:"index"`
+	Email        string    `gorm:"uniqueIndex;size:255"`
+	PasswordHash string    `gorm:"size:255"`
+	Role         UserRole  `gorm:"type:user_role"`
+	IsVerified   bool      `gorm:"default:false"`
+	CreatedAt    time.Time `gorm:"autoCreateTime"`
+	UpdatedAt    time.Time `gorm:"autoUpdateTime"`
+
+	// Relationships (without foreign key constraints to avoid circular dependency)
+	Business *Business `gorm:"-"`
 }

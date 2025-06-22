@@ -32,7 +32,8 @@ func NewPayrollHandler(svc service.PayrollService) *PayrollHandler {
 func (h *PayrollHandler) CreatePayrollRun(w http.ResponseWriter, r *http.Request) {
 	var req request.CreatePayrollRunRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		// Allow empty body
+		response.RespondWithError(w, domain.ErrValidationFailed)
+		return
 	}
 
 	claims, ok := middleware.GetClaimsFromContext(r.Context())
