@@ -30,21 +30,29 @@ type User struct {
 // ToDomain converts a postgres.User model to a domain.User model.
 func (u *User) ToDomain() *domain.User {
 	return &domain.User{
-		ID:           u.ID,
+		Model: domain.Model{
+			ID:        u.Model.ID,
+			CreatedAt: u.Model.CreatedAt,
+			UpdatedAt: u.Model.UpdatedAt,
+			DeletedAt: u.Model.DeletedAt,
+		},
 		BusinessID:   u.BusinessID,
 		Email:        u.Email,
 		PasswordHash: u.PasswordHash,
 		Role:         u.Role,
 		IsVerified:   u.IsVerified,
-		CreatedAt:    u.CreatedAt,
-		UpdatedAt:    u.UpdatedAt,
 	}
 }
 
 // fromDomain converts a domain.User model to a postgres.User model.
 func UserFromDomain(u *domain.User) *User {
 	return &User{
-		Model:        gorm.Model{ID: u.ID, CreatedAt: u.CreatedAt, UpdatedAt: u.UpdatedAt},
+		Model: gorm.Model{
+			ID:        u.Model.ID,
+			CreatedAt: u.Model.CreatedAt,
+			UpdatedAt: u.Model.UpdatedAt,
+			DeletedAt: u.Model.DeletedAt,
+		},
 		BusinessID:   u.BusinessID,
 		Email:        u.Email,
 		PasswordHash: u.PasswordHash,
@@ -55,11 +63,14 @@ func UserFromDomain(u *domain.User) *User {
 
 func (b *Business) ToDomain() *domain.Business {
 	return &domain.Business{
-		ID:        b.ID,
-		AdminID:   b.AdminID,
-		Name:      b.Name,
-		CreatedAt: b.CreatedAt,
-		UpdatedAt: b.UpdatedAt,
+		Model: domain.Model{
+			ID:        b.Model.ID,
+			CreatedAt: b.Model.CreatedAt,
+			UpdatedAt: b.Model.UpdatedAt,
+			DeletedAt: b.Model.DeletedAt,
+		},
+		AdminID: b.AdminID,
+		Name:    b.Name,
 	}
 }
 func DeductionRuleFromDomain(dr *domain.DeductionRule) *DeductionRule {
@@ -69,7 +80,12 @@ func DeductionRuleFromDomain(dr *domain.DeductionRule) *DeductionRule {
 
 func BusinessFromDomain(b *domain.Business) *Business {
 	return &Business{
-		Model:   gorm.Model{ID: b.ID, CreatedAt: b.CreatedAt, UpdatedAt: b.UpdatedAt},
+		Model: gorm.Model{
+			ID:        b.Model.ID,
+			CreatedAt: b.Model.CreatedAt,
+			UpdatedAt: b.Model.UpdatedAt,
+			DeletedAt: b.Model.DeletedAt,
+		},
 		AdminID: b.AdminID,
 		Name:    b.Name,
 	}
@@ -108,7 +124,12 @@ type Employee struct {
 func (e *Employee) ToDomain() *domain.Employee {
 	domCadre := e.Cadre.ToDomain()
 	return &domain.Employee{
-		ID:                e.ID,
+		Model: domain.Model{
+			ID:        e.Model.ID,
+			CreatedAt: e.Model.CreatedAt,
+			UpdatedAt: e.Model.UpdatedAt,
+			DeletedAt: e.Model.DeletedAt,
+		},
 		BusinessID:        e.BusinessID,
 		CadreID:           e.CadreID,
 		FullName:          e.FullName,
@@ -116,8 +137,6 @@ func (e *Employee) ToDomain() *domain.Employee {
 		BankName:          e.BankName,
 		BankAccountNumber: e.BankAccountNumber,
 		IsActive:          e.IsActive,
-		CreatedAt:         e.CreatedAt,
-		UpdatedAt:         e.UpdatedAt,
 		Cadre:             domCadre,
 	}
 }
@@ -153,7 +172,21 @@ func EarningComponentFromDomain(ec *domain.EarningComponent) *EarningComponent {
 }
 
 func EmployeeFromDomain(e *domain.Employee) *Employee {
-	return &Employee{}
+	return &Employee{
+		Model: gorm.Model{
+			ID:        e.Model.ID,
+			CreatedAt: e.Model.CreatedAt,
+			UpdatedAt: e.Model.UpdatedAt,
+			DeletedAt: e.Model.DeletedAt,
+		},
+		BusinessID:        e.BusinessID,
+		CadreID:           e.CadreID,
+		FullName:          e.FullName,
+		Email:             e.Email,
+		BankName:          e.BankName,
+		BankAccountNumber: e.BankAccountNumber,
+		IsActive:          e.IsActive,
+	}
 }
 
 type PayrollRun struct {

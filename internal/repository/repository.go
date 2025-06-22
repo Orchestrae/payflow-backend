@@ -61,6 +61,8 @@ type EmployeeRepository interface {
 	FindByID(ctx context.Context, employeeID uint) (*domain.Employee, error)
 	Update(ctx context.Context, emp *domain.Employee) error
 	Deactivate(ctx context.Context, employeeID uint) error
+	FindEmailByBusiness(ctx context.Context, email string, businessID uint) (*domain.Employee, error)
+	IsEmailExistByBusiness(ctx context.Context, email string, businessID uint) (bool, error)
 }
 
 // PayrollRepository defines the contract for payroll data operations.

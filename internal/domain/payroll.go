@@ -16,7 +16,7 @@ const (
 )
 
 type PayrollRun struct {
-	ID               uint          `gorm:"primaryKey;autoIncrement"`
+	Model
 	BusinessID       uint          `gorm:"index"`
 	Period           time.Time     `gorm:"index"` // e.g., 2025-06-01 for June 2025 payroll
 	Status           PayrollStatus `gorm:"type:varchar(20);default:'draft'"`
@@ -25,17 +25,15 @@ type PayrollRun struct {
 	TotalNetPay      int64         `gorm:"default:0"`
 	ScheduledFor     time.Time     `gorm:""` // The date for disbursement
 	ProcessedAt      *time.Time
-	PaymentReference string    `gorm:"size:255"`
-	RejectionReason  string    `gorm:"size:500"`
-	CreatedAt        time.Time `gorm:"autoCreateTime"`
-	UpdatedAt        time.Time `gorm:"autoUpdateTime"`
+	PaymentReference string `gorm:"size:255"`
+	RejectionReason  string `gorm:"size:500"`
 
 	// Relationships
 	Entries []PayrollRunEntry `gorm:"foreignKey:PayrollRunID"`
 }
 
 type PayrollRunEntry struct {
-	ID              uint  `gorm:"primaryKey;autoIncrement"`
+	Model
 	PayrollRunID    uint  `gorm:"index"`
 	EmployeeID      uint  `gorm:"index"`
 	GrossPay        int64 `gorm:"default:0"`
@@ -57,7 +55,7 @@ const (
 )
 
 type PayrollRunEntryDetail struct {
-	ID                uint                   `gorm:"primaryKey;autoIncrement"`
+	Model
 	PayrollRunEntryID uint                   `gorm:"index"`
 	Type              PayrollEntryDetailType `gorm:"type:varchar(20)"`
 	Name              string                 `gorm:"size:255"`

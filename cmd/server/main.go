@@ -65,7 +65,7 @@ func main() {
 	notificationSvc := sendgrid.NewMailhogService()
 
 	// Core Services
-	authSvc := service.NewAuthService(userRepo, businessRepo, txer, cfg.JWTSecret, cfg.JWTExpiration)
+	authSvc := service.NewAuthService(userRepo, businessRepo, txer, cfg.JWTSecret, cfg.JWTExpirationDuration)
 	employeeSvc := service.NewEmployeeService(employeeRepo, cadreRepo)
 	cadreSvc := service.NewCadreService(cadreRepo)
 	deductionRuleSvc := service.NewDeductionRuleService(deductionRuleRepo)

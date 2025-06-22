@@ -3,6 +3,7 @@ package handler
 
 import (
 	"encoding/json"
+	"log/slog"
 	"net/http"
 	"payflow/internal/api/middleware"
 	"payflow/internal/api/request"
@@ -57,6 +58,7 @@ func (h *EmployeeHandler) CreateEmployee(w http.ResponseWriter, r *http.Request)
 
 	createdEmployee, err := h.employeeService.CreateEmployee(r.Context(), employee)
 	if err != nil {
+		slog.Error("Failed to create employee", "error", err)
 		response.RespondWithError(w, err)
 		return
 	}
@@ -129,7 +131,7 @@ func (h *EmployeeHandler) UpdateEmployee(w http.ResponseWriter, r *http.Request)
 	}
 
 	employee := &domain.Employee{
-		ID:                uint(employeeID),
+		Model:             domain.Model{ID: uint(employeeID)},
 		BusinessID:        claims.BusinessID,
 		CadreID:           req.CadreID,
 		FullName:          req.FullName,

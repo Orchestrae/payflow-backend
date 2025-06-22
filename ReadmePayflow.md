@@ -131,14 +131,22 @@ These endpoints orchestrate the end-to-end process of running payroll.
     3.  The core calculation engine computes the gross pay, deductions, and net pay for every employee.
     4.  A new `PayrollRun` record is created and saved to the database with the status `draft`.
 -   **Authorization:** `Admin` or `Operator` role required.
--   **Example Payload:**
-    ```json
-    {
-      "adjustments": {
-        "15": 5000,   // Bonus of 5000 for employee with ID 15
-        "22": -2000   // Deduction of 2000 for employee with ID 22
+  -   **Example Payload:**
+      ```json
+      {
+        "adjustments": {
+          "15": 5000,   // Bonus of 5000 for employee with ID 15
+          "22": -2000   // Deduction of 2000 for employee with ID 22
+        }
       }
-    }
+      ```
+      {
+      "payroll_date": "2025-06-25",
+      "adjustments": {
+      "101": 50000,   // A positive value for Alice's bonus ($500.00)
+      "102": -7500    // A negative value for Bob's deduction ($75.00)
+        }
+     }
     ```
 
 ### `POST /payroll-runs/{id}/submit`
