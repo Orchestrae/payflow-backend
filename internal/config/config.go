@@ -2,23 +2,25 @@
 package config
 
 import (
-	"github.com/spf13/viper"
 	"strings"
 	"time"
+
+	"github.com/spf13/viper"
 )
 
 // Config holds all configuration for the application.
 // Values are read by viper from a config file or environment variables.
 type Config struct {
-	ServerPort       string        `mapstructure:"SERVER_PORT"`
-	LogLevel         string        `mapstructure:"LOG_LEVEL"`
-	LogPretty        bool          `mapstructure:"LOG_PRETTY"`
-	DatabaseURL      string        `mapstructure:"DB_URL"`
-	JWTSecret        string        `mapstructure:"JWT_SECRET"`
-	JWTExpiration    time.Duration `mapstructure:"JWT_EXPIRATION_HOURS"`
-	KoraPayAPIKey    string        `mapstructure:"KORAPAY_API_KEY"`
-	KoraPayPublicKey string        `mapstructure:"KORAPAY_PUBLIC_KEY"`
-	KoraPayBaseURL   string        `mapstructure:"KORAPAY_BASE_URL"`
+	ServerPort            string        `mapstructure:"SERVER_PORT"`
+	LogLevel              string        `mapstructure:"LOG_LEVEL"`
+	LogPretty             bool          `mapstructure:"LOG_PRETTY"`
+	DatabaseURL           string        `mapstructure:"DB_URL"`
+	JWTSecret             string        `mapstructure:"JWT_SECRET"`
+	JWTExpiration         int           `mapstructure:"JWT_EXPIRATION_HOURS"`
+	JWTExpirationDuration time.Duration `mapstructure:"-"`
+	KoraPayAPIKey         string        `mapstructure:"KORAPAY_API_KEY"`
+	KoraPayPublicKey      string        `mapstructure:"KORAPAY_PUBLIC_KEY"`
+	KoraPayBaseURL        string        `mapstructure:"KORAPAY_BASE_URL"`
 }
 
 // Load loads configuration from the environment.
@@ -50,7 +52,7 @@ func Load() (*Config, error) {
 	}
 
 	// Viper doesn't handle time.Duration from env well, so we do it manually.
-	config.JWTExpiration = time.Duration(viper.GetInt("JWT_EXPIRATION_HOURS")) * time.Hour
+	config.JWTExpirationDuration = time.Duration(config.JWTExpiration) * time.Hour
 
 	return &config, nil
 }

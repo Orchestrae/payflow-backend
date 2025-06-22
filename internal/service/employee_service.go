@@ -45,9 +45,22 @@ func (s *employeeService) CreateEmployee(ctx context.Context, emp *domain.Employ
 		return nil, err // Internal error
 	}
 
+	//validate that the cadre belongs to the same business as the employee
+	// Security Check: Ensure the cadre belongs to the same business as the employee.
+
 	if cadre.BusinessID != emp.BusinessID {
 		log.Ctx(ctx).Warn().Uint("employeeBusinessID", emp.BusinessID).Uint("cadreBusinessID", cadre.BusinessID).Msg("Attempt to assign cadre from another business")
 		return nil, domain.ErrForbidden
+	}
+	// validate that email is unique within the business using IsEmailExistByBusiness
+	var exists bool
+	if exists, err = s.employeeRepo.IsEmailExistByBusiness(ctx, emp.Email, emp.BusinessID); err != nil {
+		log.Ctx(ctx).Error().Err(err).Msg("Failed to check if email exists in business")
+		return nil, err // Internal error
+	}
+	if exists {
+		log.Ctx(ctx).Warn().Str("email", emp.Email).Uint("businessID", emp.BusinessID).Msg("Attempt to create employee with duplicate email")
+		return nil, fmt.Errorf("%w: email %s already exists for this business", domain.ErrValidationFailed, emp.Email)
 	}
 
 	// The repository's Create method will handle potential conflicts (e.g., duplicate email).

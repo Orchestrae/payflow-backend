@@ -4,6 +4,7 @@ package service
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"payflow/internal/domain"
 	"payflow/internal/repository"
 	"time"
@@ -144,7 +145,7 @@ func (s *payrollService) CalculatePayrollRun(ctx context.Context, businessID uin
 	for _, emp := range employees {
 		if emp.Cadre == nil {
 			// Skip employees without a valid cadre, or return an error.
-			// Logging this is a good practice.
+			slog.Warn("Employee without cadre", "slog_employee_id", emp.ID, "slog_employee_name", emp.FullName, "slog_business_id", businessID)
 			continue
 		}
 

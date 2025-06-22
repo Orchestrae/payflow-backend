@@ -3,6 +3,7 @@ package postgres
 
 import (
 	"context"
+	"errors"
 	"payflow/internal/domain"
 	"payflow/internal/repository"
 
@@ -111,4 +112,29 @@ func (r *employeeRepository) Update(ctx context.Context, employee *domain.Employ
 
 func (r *employeeRepository) WithTx(tx *gorm.DB) repository.EmployeeRepository {
 	return NewEmployeeRepository(tx)
+}
+
+func (r *employeeRepository) FindEmailByBusiness(ctx context.Context, email string, businessID uint) (*domain.Employee, error) {
+	var dbEmployee Employee
+	if err := r.db.WithContext(ctx).
+		Where("email = ? AND business_id = ?", email, businessID).
+		First(&dbEmployee).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, domain.ErrNotFound
+		}
+		return nil, err
+	}
+	return dbEmployee.ToDomain(), nil
+}
+
+// IsEmailExistByBusiness checks if an email already exists for a given business.
+func (r *employeeRepository) IsEmailExistByBusiness(ctx context.Context, email string, businessID uint) (bool, error) {
+	var count int64
+	if err := r.db.WithContext(ctx).
+		Model(&Employee{}).
+		Where("email = ? AND business_id = ?", email, businessID).
+		Count(&count).Error; err != nil {
+		return false, err
+	}
+	return count > 0, nil
 }
