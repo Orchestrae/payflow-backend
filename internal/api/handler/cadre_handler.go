@@ -30,14 +30,18 @@ func (h *CadreHandler) CreateCadre(w http.ResponseWriter, r *http.Request) {
 		response.RespondWithError(w, domain.ErrValidationFailed)
 		return
 	}
-
-	claims := r.Context().Value(middleware.UserClaimsKey).(*utils.Claims)
-	businessID, _ := strconv.ParseUint(claims.BusinessID, 10, 32)
+	claims, ok := middleware.GetClaimsFromContext(r.Context())
+	if !ok {
+		response.RespondWithError(w, domain.ErrInternalServer) // Should not happen
+		return
+	}
 
 	// Create the cadre
 	cadre := &domain.Cadre{
-		BusinessID: uint(businessID),
-		Name:       req.Name,
+		BusinessID:        claims.BusinessID,
+		Name:              req.Name,
+		EarningComponents: req.EarningComponents,
+		//DeductionRules:    req.DeductionRuleIDs,
 	}
 
 	createdCadre, err := h.cadreService.CreateCadre(r.Context(), cadre)

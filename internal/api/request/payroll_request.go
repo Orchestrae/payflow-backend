@@ -10,6 +10,7 @@ type Adjustment struct {
 // CreatePayrollRunRequest is the body for initiating a new payroll run.
 type CreatePayrollRunRequest struct {
 	// A map where the key is the string representation of employee ID
+	//ScheduledFor int              `json:"scheduled_for" validate:"required"`
 	Adjustments map[string]int64 `json:"adjustments"`
 }
 

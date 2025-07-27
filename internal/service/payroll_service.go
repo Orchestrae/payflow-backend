@@ -131,6 +131,7 @@ func (s *payrollService) CalculatePayrollRun(ctx context.Context, businessID uin
 	// 1. Fetch all active employees for the business with their cadres preloaded.
 	employees, err := s.employeeRepo.FindActiveByBusinessID(ctx, businessID)
 	if err != nil {
+		slog.Error("Failed to fetch active employees", "error", err)
 		return nil, fmt.Errorf("failed to fetch active employees: %w", err)
 	}
 

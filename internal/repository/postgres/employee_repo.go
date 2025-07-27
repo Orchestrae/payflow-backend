@@ -4,6 +4,7 @@ package postgres
 import (
 	"context"
 	"errors"
+	"log"
 	"payflow/internal/domain"
 	"payflow/internal/repository"
 
@@ -25,19 +26,24 @@ func (r *employeeRepository) FindActiveByBusinessID(ctx context.Context, busines
 	// and for each Cadre, its EarningComponents and DeductionRules.
 	err := r.db.WithContext(ctx).
 		Preload("Cadre.EarningComponents").
-		Preload("Cadre.DeductionRules").
+		//Preload("Cadre.DeductionRules").
 		Where("business_id = ? AND is_active = ?", businessID, true).
 		Find(&dbEmployees).Error
 
 	if err != nil {
 		return nil, err
 	}
-
+	for _, employee := range dbEmployees {
+		log.Println(employee.ID)
+		log.Println(employee.CadreID)
+		log.Println(employee.Cadre.EarningComponents)
+		log.Println(employee.Cadre.DeductionRules)
+	}
 	domainEmployees := make([]domain.Employee, len(dbEmployees))
 	for i, dbEmp := range dbEmployees {
 		domainEmployees[i] = *dbEmp.ToDomain()
 	}
-
+	log.Println(domainEmployees)
 	return domainEmployees, nil
 }
 
