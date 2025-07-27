@@ -3,13 +3,14 @@ package handler
 
 import (
 	"encoding/json"
-	"github.com/go-playground/validator/v10"
 	"log/slog"
 	"net/http"
 	"payflow/internal/api/request"
 	"payflow/internal/api/response"
 	"payflow/internal/domain"
 	"payflow/internal/service"
+
+	"github.com/go-playground/validator/v10"
 )
 
 type AuthHandler struct {
@@ -39,18 +40,32 @@ func (h *AuthHandler) RegisterBusiness(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	user, err := h.authService.RegisterBusiness(r.Context(), req.BusinessName, req.Email, req.Password)
+	user, corporateAccount, err := h.authService.RegisterBusiness(
+		r.Context(),
+		req.BusinessName,
+		req.Email,
+		req.Password,
+		req.RCNumber,
+		req.IncorporationDate,
+		req.DirectorBVN,
+	)
 	if err != nil {
 		slog.Error("Failed to register business", "error", err)
 		response.RespondWithError(w, err)
 		return
 	}
 
-	resp := response.UserResponse{
-		ID:         user.ID,
-		Email:      user.Email,
-		Role:       string(user.Role),
-		BusinessID: user.BusinessID,
+	resp := response.BusinessRegistrationResponse{
+		User: response.UserResponse{
+			ID:         user.ID,
+			Email:      user.Email,
+			Role:       string(user.Role),
+			BusinessID: user.BusinessID,
+		},
+		CorporateAccount: response.CorporateAccountResponse{
+			AccountNumber: corporateAccount.AccountNumber,
+			AccountName:   corporateAccount.AccountName,
+		},
 	}
 	response.RespondWithJSON(w, http.StatusCreated, resp)
 }

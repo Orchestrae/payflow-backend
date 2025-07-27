@@ -4,6 +4,7 @@ package service
 import (
 	"context"
 	"payflow/internal/domain"
+	"payflow/internal/platform/vfd"
 	"time"
 
 	"gorm.io/gorm"
@@ -34,7 +35,7 @@ type NotificationService interface {
 
 // AuthService defines the business logic for authentication and authorization.
 type AuthService interface {
-	RegisterBusiness(ctx context.Context, name, email, password string) (*domain.User, error)
+	RegisterBusiness(ctx context.Context, name, email, password, rcNumber string, incorporationDate time.Time, directorBVN string) (*domain.User, *vfd.CorporateAccount, error)
 	Login(ctx context.Context, email, password string) (token string, user *domain.User, err error)
 	// Add more methods like InviteUser, AcceptInvite, etc. later
 }

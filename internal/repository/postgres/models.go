@@ -13,9 +13,14 @@ import (
 
 type Business struct {
 	gorm.Model
-	AdminID uint
-	Name    string
-	Users   []User `gorm:"foreignKey:BusinessID"`
+	AdminID           uint
+	Name              string
+	RCNumber          *string
+	IncorporationDate *time.Time
+	DirectorBVN       *string
+	VFDAccountNumber  *string
+	VFDAccountName    *string
+	Users             []User `gorm:"foreignKey:BusinessID"`
 }
 
 type User struct {
@@ -69,10 +74,16 @@ func (b *Business) ToDomain() *domain.Business {
 			UpdatedAt: b.Model.UpdatedAt,
 			DeletedAt: b.Model.DeletedAt,
 		},
-		AdminID: b.AdminID,
-		Name:    b.Name,
+		AdminID:           b.AdminID,
+		Name:              b.Name,
+		RCNumber:          b.RCNumber,
+		IncorporationDate: b.IncorporationDate,
+		DirectorBVN:       b.DirectorBVN,
+		VFDAccountNumber:  b.VFDAccountNumber,
+		VFDAccountName:    b.VFDAccountName,
 	}
 }
+
 func DeductionRuleFromDomain(dr *domain.DeductionRule) *DeductionRule {
 	/* ... */
 	return &DeductionRule{}
@@ -86,8 +97,13 @@ func BusinessFromDomain(b *domain.Business) *Business {
 			UpdatedAt: b.Model.UpdatedAt,
 			DeletedAt: b.Model.DeletedAt,
 		},
-		AdminID: b.AdminID,
-		Name:    b.Name,
+		AdminID:           b.AdminID,
+		Name:              b.Name,
+		RCNumber:          b.RCNumber,
+		IncorporationDate: b.IncorporationDate,
+		DirectorBVN:       b.DirectorBVN,
+		VFDAccountNumber:  b.VFDAccountNumber,
+		VFDAccountName:    b.VFDAccountName,
 	}
 }
 

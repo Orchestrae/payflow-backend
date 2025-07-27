@@ -21,6 +21,11 @@ type Config struct {
 	KoraPayAPIKey         string        `mapstructure:"KORAPAY_API_KEY"`
 	KoraPayPublicKey      string        `mapstructure:"KORAPAY_PUBLIC_KEY"`
 	KoraPayBaseURL        string        `mapstructure:"KORAPAY_BASE_URL"`
+
+	// VFD Bank Configuration (New)
+	VFDConsumerKey    string `mapstructure:"VFD_CONSUMER_KEY"`
+	VFDConsumerSecret string `mapstructure:"VFD_CONSUMER_SECRET"`
+	VFDBaseURL        string `mapstructure:"VFD_BASE_URL"`
 }
 
 // Load loads configuration from the environment.
@@ -31,7 +36,8 @@ func Load() (*Config, error) {
 	viper.SetDefault("LOG_PRETTY", false)
 	viper.SetDefault("JWT_EXPIRATION_HOURS", 72)
 	viper.SetDefault("KORAPAY_BASE_URL", "https://api.korapay.com/v1")
-
+	// Setting the default VFD base URL for the development environment
+	viper.SetDefault("VFD_BASE_URL", "https://api-devapps.vfdbank.systems")
 	// Tell viper to look for an .env file
 	viper.AddConfigPath(".")
 	viper.SetConfigName(".env")

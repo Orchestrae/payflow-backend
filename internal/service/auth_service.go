@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"payflow/internal/domain"
+	"payflow/internal/platform/vfd"
 	"payflow/internal/repository"
 	"payflow/pkg/utils"
 	"time"
@@ -16,6 +17,7 @@ type authService struct {
 	txer         repository.Transactioner // Transaction manager
 	jwtSecret    string
 	jwtExpiry    time.Duration
+	vfdService   vfd.VFDService
 }
 
 // NewAuthService creates a new authentication service.
@@ -25,6 +27,7 @@ func NewAuthService(
 	txer repository.Transactioner,
 	jwtSecret string,
 	jwtExpiry time.Duration,
+	vfdService vfd.VFDService,
 ) AuthService {
 	return &authService{
 		userRepo:     userRepo,
@@ -32,12 +35,13 @@ func NewAuthService(
 		txer:         txer,
 		jwtSecret:    jwtSecret,
 		jwtExpiry:    jwtExpiry,
+		vfdService:   vfdService,
 	}
 }
 
 // RegisterBusiness handles the creation of a new business and its admin user.
 // This operation MUST be transactional. If creating the user fails, the business creation should be rolled back.
-func (s *authService) RegisterBusiness(ctx context.Context, name, email, password string) (*domain.User, error) {
+func (s *authService) RegisterBusiness(ctx context.Context, name, email, password, rcNumber string, incorporationDate time.Time, directorBVN string) (*domain.User, *vfd.CorporateAccount, error) {
 	// Start a new transaction
 	tx := s.txer.Begin(ctx)
 	defer func() {
@@ -51,18 +55,23 @@ func (s *authService) RegisterBusiness(ctx context.Context, name, email, passwor
 	hashedPassword, err := utils.HashPassword(password)
 	if err != nil {
 		s.txer.Rollback(tx)
-		return nil, fmt.Errorf("could not hash password: %w", err)
+		return nil, nil, fmt.Errorf("could not hash password: %w", err)
 	}
 
 	// 2. Create the business record first (without an AdminID yet)
-	business := &domain.Business{Name: name}
+	business := &domain.Business{
+		Name:              name,
+		RCNumber:          &rcNumber,
+		IncorporationDate: &incorporationDate,
+		DirectorBVN:       &directorBVN,
+	}
 	businessRepoTx := s.businessRepo.WithTx(tx)
 	if err := businessRepoTx.Create(ctx, business); err != nil {
 		s.txer.Rollback(tx)
 		if err == domain.ErrConflict { // Assuming repo can detect this
-			return nil, err
+			return nil, nil, err
 		}
-		return nil, fmt.Errorf("could not create business: %w", err)
+		return nil, nil, fmt.Errorf("could not create business: %w", err)
 	}
 
 	// 3. Create the admin user record
@@ -79,28 +88,50 @@ func (s *authService) RegisterBusiness(ctx context.Context, name, email, passwor
 	if err := userRepoTx.Create(ctx, adminUser); err != nil {
 		s.txer.Rollback(tx)
 		if err == domain.ErrConflict {
-			return nil, fmt.Errorf("user with email '%s' already exists", email)
+			return nil, nil, fmt.Errorf("user with email '%s' already exists", email)
 		}
-		return nil, fmt.Errorf("could not create admin user: %w", err)
+		return nil, nil, fmt.Errorf("could not create admin user: %w", err)
 	}
 
 	// 4. Update the business with the new admin's ID
 	business.AdminID = adminUser.ID
 	if err := businessRepoTx.Update(ctx, business); err != nil {
 		s.txer.Rollback(tx)
-		return nil, fmt.Errorf("could not link admin to business: %w", err)
+		return nil, nil, fmt.Errorf("could not link admin to business: %w", err)
 	}
 
-	// 5. Commit the transaction
+	// 5. Create VFD corporate account
+	vfdDetails := vfd.NewAccountDetails{
+		RCNumber:          rcNumber,
+		CompanyName:       name,
+		IncorporationDate: incorporationDate,
+		DirectorBVN:       directorBVN,
+	}
+
+	corporateAccount, err := s.vfdService.CreateNewCorporateAccount(ctx, vfdDetails)
+	if err != nil {
+		s.txer.Rollback(tx)
+		return nil, nil, fmt.Errorf("could not create VFD corporate account: %w", err)
+	}
+
+	// 6. Update business with VFD account details
+	business.VFDAccountNumber = &corporateAccount.AccountNumber
+	business.VFDAccountName = &corporateAccount.AccountName
+	if err := businessRepoTx.Update(ctx, business); err != nil {
+		s.txer.Rollback(tx)
+		return nil, nil, fmt.Errorf("could not update business with VFD account details: %w", err)
+	}
+
+	// 7. Commit the transaction
 	if err := s.txer.Commit(tx); err != nil {
 		s.txer.Rollback(tx)
-		return nil, fmt.Errorf("failed to commit registration transaction: %w", err)
+		return nil, nil, fmt.Errorf("failed to commit registration transaction: %w", err)
 	}
 
 	// TODO: Trigger email verification flow via NotificationService
 	// s.notificationService.SendVerificationEmail(ctx, adminUser)
 
-	return adminUser, nil
+	return adminUser, corporateAccount, nil
 }
 
 func (s *authService) Login(ctx context.Context, email, password string) (string, *domain.User, error) {

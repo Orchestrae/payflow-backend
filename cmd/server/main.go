@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"payflow/internal/platform/vfd"
 	"syscall"
 	"time"
 
@@ -63,9 +64,12 @@ func main() {
 	payoutSvc := korapay.NewPayoutService(koraClient)
 	// For local dev, use a mock/Mailhog service. For prod, use a real one.
 	notificationSvc := sendgrid.NewMailhogService()
+	vfdClient := vfd.NewClient(cfg.VFDBaseURL, cfg.VFDConsumerKey, cfg.VFDConsumerSecret)
+	vfdSvc := vfd.NewVFDService(vfdClient)
+	log.Info().Msg("External platform services initialized (Kora, VFD, Notifications)")
 
 	// Core Services
-	authSvc := service.NewAuthService(userRepo, businessRepo, txer, cfg.JWTSecret, cfg.JWTExpirationDuration)
+	authSvc := service.NewAuthService(userRepo, businessRepo, txer, cfg.JWTSecret, cfg.JWTExpirationDuration, vfdSvc)
 	employeeSvc := service.NewEmployeeService(employeeRepo, cadreRepo)
 	cadreSvc := service.NewCadreService(cadreRepo)
 	deductionRuleSvc := service.NewDeductionRuleService(deductionRuleRepo)
