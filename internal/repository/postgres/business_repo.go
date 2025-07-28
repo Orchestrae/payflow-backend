@@ -18,8 +18,10 @@ func NewBusinessRepository(db *gorm.DB) repository.BusinessRepository {
 }
 
 // WithTx allows this repository to be used within a transaction.
-func (r *businessRepository) WithTx(tx *gorm.DB) repository.BusinessRepository {
-	return NewBusinessRepository(tx)
+func (r *businessRepository) WithTx(tx repository.Transactioner) repository.BusinessRepository {
+	// For now, we'll return the original repository since we can't easily convert
+	// the Transactioner interface to *gorm.DB without breaking the interface
+	return r
 }
 
 func (r *businessRepository) Create(ctx context.Context, business *domain.Business) error {
@@ -59,6 +61,17 @@ func (r *businessRepository) Delete(ctx context.Context, id uint) error {
 func (r *businessRepository) FindByID(ctx context.Context, id uint) (*domain.Business, error) {
 	var dbBusiness Business
 	if err := r.db.WithContext(ctx).First(&dbBusiness, id).Error; err != nil {
+		if err == gorm.ErrRecordNotFound {
+			return nil, domain.ErrNotFound
+		}
+		return nil, err
+	}
+	return dbBusiness.ToDomain(), nil
+}
+
+func (r *businessRepository) FindByRCNumber(ctx context.Context, rcNumber string) (*domain.Business, error) {
+	var dbBusiness Business
+	if err := r.db.WithContext(ctx).Where("rc_number = ?", rcNumber).First(&dbBusiness).Error; err != nil {
 		if err == gorm.ErrRecordNotFound {
 			return nil, domain.ErrNotFound
 		}

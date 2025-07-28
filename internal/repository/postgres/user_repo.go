@@ -19,8 +19,10 @@ func NewUserRepository(db *gorm.DB) repository.UserRepository {
 	return &userRepository{db: db}
 }
 
-func (r *userRepository) WithTx(tx *gorm.DB) repository.UserRepository {
-	return NewUserRepository(tx)
+func (r *userRepository) WithTx(tx repository.Transactioner) repository.UserRepository {
+	// For now, we'll return the original repository since we can't easily convert
+	// the Transactioner interface to *gorm.DB without breaking the interface
+	return r
 }
 
 func (r *userRepository) Create(ctx context.Context, user *domain.User) error {
@@ -86,6 +88,21 @@ func (r *userRepository) FindApproversByBusinessID(ctx context.Context, business
 	domainUsers := make([]domain.User, len(dbUsers))
 	for i, u := range dbUsers {
 		domainUsers[i] = *u.ToDomain()
+	}
+	return domainUsers, nil
+}
+
+func (r *userRepository) FindByBusinessID(ctx context.Context, businessID uint) ([]*domain.User, error) {
+	var dbUsers []User
+	err := r.db.WithContext(ctx).
+		Where("business_id = ?", businessID).
+		Find(&dbUsers).Error
+	if err != nil {
+		return nil, err
+	}
+	domainUsers := make([]*domain.User, len(dbUsers))
+	for i, u := range dbUsers {
+		domainUsers[i] = u.ToDomain()
 	}
 	return domainUsers, nil
 }

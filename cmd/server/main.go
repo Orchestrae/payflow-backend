@@ -57,6 +57,8 @@ func main() {
 	cadreRepo := postgres.NewCadreRepository(db)
 	payrollRepo := postgres.NewPayrollRepository(db)
 	deductionRuleRepo := postgres.NewDeductionRuleRepository(db)
+	webhookRepo := postgres.NewVFDWebhookNotificationRepository(db)
+	transferRepo := postgres.NewVFDTransferRepository(db)
 
 	// --- Phase 3: External Service & Core Service Initialization ---
 	// External Platform Clients
@@ -73,6 +75,9 @@ func main() {
 	employeeSvc := service.NewEmployeeService(employeeRepo, cadreRepo)
 	cadreSvc := service.NewCadreService(cadreRepo)
 	deductionRuleSvc := service.NewDeductionRuleService(deductionRuleRepo)
+	webhookSvc := service.NewVFDWebhookService(webhookRepo, businessRepo, vfdSvc, txer)
+	transferSvc := service.NewVFDTransferService(transferRepo, vfdSvc, txer)
+	bulkTransferSvc := service.NewBulkTransferService(transferSvc, vfdSvc, txer)
 
 	// --- Phase 4: Resolving the Scheduler <-> Service Circular Dependency ---
 	// 1. Create the scheduler. It depends on an interface that the PayrollService will implement.
@@ -97,7 +102,7 @@ func main() {
 	// payoutScheduler.SetPayrollProcessor(payrollSvc)
 
 	// --- Phase 5: API Router & Server Startup ---
-	router := api.NewRouter(cfg, authSvc, employeeSvc, cadreSvc, deductionRuleSvc, payrollSvc)
+	router := api.NewRouter(cfg, authSvc, employeeSvc, cadreSvc, deductionRuleSvc, payrollSvc, webhookSvc, transferSvc, bulkTransferSvc)
 	log.Info().Msg("API router initialized")
 
 	server := &http.Server{

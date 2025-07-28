@@ -40,6 +40,66 @@ type AuthService interface {
 	// Add more methods like InviteUser, AcceptInvite, etc. later
 }
 
+// VFDWebhookService defines the business logic for VFD webhook notifications.
+type VFDWebhookService interface {
+	// ProcessInwardCreditWebhook processes an inward credit webhook notification
+	ProcessInwardCreditWebhook(ctx context.Context, req *domain.VFDWebhookNotification) error
+
+	// ProcessInitialInwardCreditWebhook processes an initial inward credit webhook notification
+	ProcessInitialInwardCreditWebhook(ctx context.Context, req *domain.VFDWebhookNotification) error
+
+	// RetriggerWebhookNotification retriggers a webhook notification via VFD API
+	RetriggerWebhookNotification(ctx context.Context, req *domain.VFDRetriggerRequest) (*domain.VFDRetriggerResponse, error)
+
+	// ListWebhookNotifications lists webhook notifications for a business
+	ListWebhookNotifications(ctx context.Context, businessID uint, page, limit int) ([]*domain.VFDWebhookNotification, int, error)
+
+	// GetWebhookNotificationByID gets a specific webhook notification by ID
+	GetWebhookNotificationByID(ctx context.Context, id uint) (*domain.VFDWebhookNotification, error)
+
+	// GetWebhookNotificationsByAccountNumber gets webhook notifications for a specific account number
+	GetWebhookNotificationsByAccountNumber(ctx context.Context, accountNumber string, page, limit int) ([]*domain.VFDWebhookNotification, int, error)
+}
+
+// VFDTransferService defines the business logic for VFD transfer operations.
+type VFDTransferService interface {
+	// AccountEnquiry gets account details for a given account number
+	AccountEnquiry(ctx context.Context, accountNumber string) (*domain.AccountEnquiryResponse, error)
+
+	// BeneficiaryEnquiry gets beneficiary details for a transfer
+	BeneficiaryEnquiry(ctx context.Context, accountNo, bank, transferType string) (*domain.BeneficiaryEnquiryResponse, error)
+
+	// GetBankList gets the list of all Nigerian banks
+	GetBankList(ctx context.Context) (*domain.BankListResponse, error)
+
+	// InitiateTransfer initiates a transfer
+	InitiateTransfer(ctx context.Context, businessID uint, req *domain.TransferRequest) (*domain.TransferResponse, error)
+
+	// ListTransfers lists transfer records for a business
+	ListTransfers(ctx context.Context, businessID uint, page, limit int) ([]*domain.TransferRecord, int, error)
+
+	// GetTransferByID gets a specific transfer record by ID
+	GetTransferByID(ctx context.Context, id uint) (*domain.TransferRecord, error)
+
+	// GetTransfersByFromAccount gets transfer records by from account
+	GetTransfersByFromAccount(ctx context.Context, fromAccount string, page, limit int) ([]*domain.TransferRecord, int, error)
+
+	// GetTransfersByToAccount gets transfer records by to account
+	GetTransfersByToAccount(ctx context.Context, toAccount string, page, limit int) ([]*domain.TransferRecord, int, error)
+}
+
+// BulkTransferService defines the business logic for bulk transfer operations.
+type BulkTransferService interface {
+	// ExecuteSingleTransfer executes a complete transfer flow for a single transfer
+	ExecuteSingleTransfer(ctx context.Context, businessID uint, req *domain.BulkTransferRequest) (*domain.BulkTransferResponse, error)
+
+	// ExecuteBatchTransfer executes multiple transfers in a batch
+	ExecuteBatchTransfer(ctx context.Context, businessID uint, req *domain.BulkTransferBatchRequest) (*domain.BulkTransferBatchResponse, error)
+
+	// GetTransferFlowData prepares all the data needed for a transfer without executing it
+	GetTransferFlowData(ctx context.Context, businessID uint, req *domain.BulkTransferRequest) (*domain.TransferFlowData, error)
+}
+
 // PayrollService defines the core business logic for payroll operations.
 type PayrollService interface {
 	// CalculatePayrollRun is the core engine. It fetches all necessary data and performs calculations.
