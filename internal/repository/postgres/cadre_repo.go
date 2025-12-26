@@ -66,7 +66,8 @@ func (r *cadreRepository) FindByBusinessID(ctx context.Context, businessID uint)
 }
 
 func (r *cadreRepository) WithTx(tx repository.Transactioner) repository.CadreRepository {
-	// For now, we'll return the original repository since we can't easily convert
-	// the Transactioner interface to *gorm.DB without breaking the interface
+	if txr, ok := tx.(*transactioner); ok {
+		return &cadreRepository{db: txr.db}
+	}
 	return r
 }

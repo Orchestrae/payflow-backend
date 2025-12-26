@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/signal"
 	"payflow/internal/platform/vfd"
+	vfd2 "payflow/internal/service/vfd"
 	"syscall"
 	"time"
 
@@ -21,6 +22,7 @@ import (
 	"payflow/internal/platform/sendgrid" // Using Mailhog/Sendgrid as example
 	"payflow/internal/repository/postgres"
 	"payflow/internal/service"
+	"payflow/internal/service/provider"
 )
 
 func main() {
@@ -75,9 +77,28 @@ func main() {
 	employeeSvc := service.NewEmployeeService(employeeRepo, cadreRepo)
 	cadreSvc := service.NewCadreService(cadreRepo)
 	deductionRuleSvc := service.NewDeductionRuleService(deductionRuleRepo)
-	webhookSvc := service.NewVFDWebhookService(webhookRepo, businessRepo, vfdSvc, txer)
-	transferSvc := service.NewVFDTransferService(transferRepo, vfdSvc, txer)
-	bulkTransferSvc := service.NewBulkTransferService(transferSvc, vfdSvc, txer)
+	webhookSvc := vfd2.NewVFDWebhookService(webhookRepo, businessRepo, vfdSvc, txer)
+	transferSvc := vfd2.NewVFDTransferService(transferRepo, vfdSvc, txer)
+
+	// Initialize transfer providers
+	providers := make(map[string]provider.TransferProvider)
+	vfdProvider := provider.NewVFDProvider(vfdSvc)
+	korapayProvider := korapay.NewTransferProvider(koraClient)
+	providers[provider.ProviderNameVFD] = vfdProvider
+	providers[provider.ProviderNameKorapay] = korapayProvider
+
+	// Create provider manager
+	providerManager, err := provider.NewTransferProviderManager(
+		cfg.TransferDefaultProvider,
+		cfg.TransferProviderFallbackOrder,
+		providers,
+	)
+	if err != nil {
+		log.Fatal().Err(err).Msg("Failed to create transfer provider manager")
+	}
+	log.Info().Msgf("Transfer provider manager initialized with default provider: %s", cfg.TransferDefaultProvider)
+
+	bulkTransferSvc := service.NewBulkTransferService(providerManager, transferRepo, txer)
 
 	// --- Phase 4: Resolving the Scheduler <-> Service Circular Dependency ---
 	// 1. Create the scheduler. It depends on an interface that the PayrollService will implement.

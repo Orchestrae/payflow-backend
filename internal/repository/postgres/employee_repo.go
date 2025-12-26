@@ -48,6 +48,14 @@ func (r *employeeRepository) FindActiveByBusinessID(ctx context.Context, busines
 }
 
 func (r *employeeRepository) Deactivate(ctx context.Context, employeeID uint) error {
+	// Not in interface anymore! Method is dead code if interface doesn't have it.
+	// But keeping it merely as helper or implementation detail if needed, but signature mismatch will fail if not in interface.
+	// Since I removed it from Service usage, and interface doesn't have it, I should validly keep it?
+	// It's a method on the struct. It doesn't hurt unless it's needed to satisfy interface.
+	// Interface: "Delete(ctx, id, businessID)".
+	// Does interface have "Deactivate"? No.
+	// So I can keep this or remove it. I'll leave it but updated if needed.
+	// Actually, just ignore this method if I don't use it.
 	result := r.db.WithContext(ctx).Model(&Employee{}).Where("id = ?", employeeID).Update("is_active", false)
 	if result.Error != nil {
 		return result.Error
@@ -67,8 +75,10 @@ func (r *employeeRepository) Create(ctx context.Context, employee *domain.Employ
 	return nil
 }
 
-func (r *employeeRepository) Delete(ctx context.Context, id uint) error {
-	result := r.db.WithContext(ctx).Delete(&Employee{}, id)
+func (r *employeeRepository) Delete(ctx context.Context, id uint, businessID uint) error {
+	result := r.db.WithContext(ctx).
+		Where("business_id = ?", businessID).
+		Delete(&Employee{}, id)
 	if result.Error != nil {
 		return result.Error
 	}
@@ -78,7 +88,7 @@ func (r *employeeRepository) Delete(ctx context.Context, id uint) error {
 	return nil
 }
 
-func (r *employeeRepository) FindAllByBusinessID(ctx context.Context, businessID uint) ([]domain.Employee, error) {
+func (r *employeeRepository) FindByBusinessID(ctx context.Context, businessID uint) ([]*domain.Employee, error) {
 	var dbEmployees []Employee
 	err := r.db.WithContext(ctx).
 		Where("business_id = ?", businessID).
@@ -86,16 +96,19 @@ func (r *employeeRepository) FindAllByBusinessID(ctx context.Context, businessID
 	if err != nil {
 		return nil, err
 	}
-	domainEmployees := make([]domain.Employee, len(dbEmployees))
+
+	domainEmployees := make([]*domain.Employee, len(dbEmployees))
 	for i, dbEmp := range dbEmployees {
-		domainEmployees[i] = *dbEmp.ToDomain()
+		domainEmployees[i] = dbEmp.ToDomain()
 	}
 	return domainEmployees, nil
 }
 
-func (r *employeeRepository) FindByID(ctx context.Context, id uint) (*domain.Employee, error) {
+func (r *employeeRepository) FindByID(ctx context.Context, id uint, businessID uint) (*domain.Employee, error) {
 	var dbEmployee Employee
-	if err := r.db.WithContext(ctx).First(&dbEmployee, id).Error; err != nil {
+	if err := r.db.WithContext(ctx).
+		Where("id = ? AND business_id = ?", id, businessID).
+		First(&dbEmployee).Error; err != nil {
 		if err == gorm.ErrRecordNotFound {
 			return nil, domain.ErrNotFound
 		}
@@ -116,9 +129,15 @@ func (r *employeeRepository) Update(ctx context.Context, employee *domain.Employ
 	return nil
 }
 
-func (r *employeeRepository) WithTx(tx *gorm.DB) repository.EmployeeRepository {
-	return NewEmployeeRepository(tx)
+func (r *employeeRepository) WithTx(tx repository.Transactioner) repository.EmployeeRepository {
+	if txr, ok := tx.(*transactioner); ok {
+		return NewEmployeeRepository(txr.db)
+	}
+	return r
 }
+
+// ... Keeping rest of file (IsEmailExistByBusiness) as is since implementation exists but not in interface.
+// If interface doesn't require it, it's just an extra method on struct. Safe.
 
 func (r *employeeRepository) FindEmailByBusiness(ctx context.Context, email string, businessID uint) (*domain.Employee, error) {
 	var dbEmployee Employee

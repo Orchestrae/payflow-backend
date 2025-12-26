@@ -2,28 +2,31 @@ package service
 
 import (
 	"context"
+	"crypto/sha512"
 	"fmt"
 	"log/slog"
 	"payflow/internal/domain"
-	"payflow/internal/platform/vfd"
 	"payflow/internal/repository"
+	"payflow/internal/service/provider"
 	"time"
+
+	"gorm.io/gorm"
 )
 
 type bulkTransferService struct {
-	transferService VFDTransferService
-	vfdService      vfd.VFDService
+	providerManager *provider.TransferProviderManager
+	transferRepo    repository.VFDTransferRepository
 	txer            repository.Transactioner
 }
 
 func NewBulkTransferService(
-	transferService VFDTransferService,
-	vfdService vfd.VFDService,
+	providerManager *provider.TransferProviderManager,
+	transferRepo repository.VFDTransferRepository,
 	txer repository.Transactioner,
 ) BulkTransferService {
 	return &bulkTransferService{
-		transferService: transferService,
-		vfdService:      vfdService,
+		providerManager: providerManager,
+		transferRepo:    transferRepo,
 		txer:            txer,
 	}
 }
@@ -151,7 +154,7 @@ func (s *bulkTransferService) GetTransferFlowData(ctx context.Context, businessI
 
 	// Step 1: Get from account details (if not provided)
 	if req.FromAccountDetails == nil {
-		fromResponse, err := s.transferService.AccountEnquiry(ctx, req.FromAccountNumber)
+		fromResponse, err := s.providerManager.AccountEnquiry(ctx, req.FromAccountNumber)
 		if err != nil {
 			return nil, fmt.Errorf("failed to get from account details: %w", err)
 		}
@@ -165,7 +168,7 @@ func (s *bulkTransferService) GetTransferFlowData(ctx context.Context, businessI
 
 	// Step 2: Get to account details (if not provided)
 	if req.ToAccountDetails == nil {
-		toResponse, err := s.transferService.BeneficiaryEnquiry(ctx, req.ToAccountNumber, req.ToBankCode, req.TransferType)
+		toResponse, err := s.providerManager.BeneficiaryEnquiry(ctx, req.ToAccountNumber, req.ToBankCode, req.TransferType)
 		if err != nil {
 			return nil, fmt.Errorf("failed to get to account details: %w", err)
 		}
@@ -216,9 +219,81 @@ func (s *bulkTransferService) GetTransferFlowData(ctx context.Context, businessI
 func (s *bulkTransferService) executeTransferFlow(ctx context.Context, flowData *domain.TransferFlowData) (*domain.TransferFlowResult, error) {
 	startTime := time.Now()
 
-	// Execute the transfer using the existing transfer service
-	vfdResponse, err := s.transferService.InitiateTransfer(ctx, flowData.BusinessID, flowData.TransferRequest)
+	// Start transaction for database operations
+	tx := s.txer.Begin(ctx)
+	defer func() {
+		if r := recover(); r != nil {
+			s.txer.Rollback(tx)
+			panic(r)
+		}
+	}()
+
+	// Generate signature for VFD (if needed)
+	signature := s.generateSignature(flowData.TransferRequest.FromAccount, flowData.TransferRequest.ToAccount)
+	flowData.TransferRequest.Signature = signature
+
+	// Create transfer record in database
+	transfer := &domain.TransferRecord{
+		BusinessID:    flowData.BusinessID,
+		FromAccount:   flowData.TransferRequest.FromAccount,
+		FromClientId:  flowData.TransferRequest.FromClientId,
+		FromClient:    flowData.TransferRequest.FromClient,
+		FromSavingsId: flowData.TransferRequest.FromSavingsId,
+		FromBvn:       &flowData.TransferRequest.FromBvn,
+		ToClientId:    flowData.TransferRequest.ToClientId,
+		ToClient:      flowData.TransferRequest.ToClient,
+		ToSavingsId:   flowData.TransferRequest.ToSavingsId,
+		ToSession:     &flowData.TransferRequest.ToSession,
+		ToBvn:         &flowData.TransferRequest.ToBvn,
+		ToAccount:     flowData.TransferRequest.ToAccount,
+		ToBank:        flowData.TransferRequest.ToBank,
+		Amount:        flowData.TransferRequest.Amount,
+		Remark:        flowData.TransferRequest.Remark,
+		TransferType:  flowData.TransferRequest.TransferType,
+		Reference:     flowData.TransferRequest.Reference,
+		Status:        string(domain.TransferStatusPending),
+	}
+
+	// Save transfer record
+	var transferRepoTx repository.VFDTransferRepository
+	if gormTx, ok := tx.(*gorm.DB); ok {
+		transferRepoTx = s.transferRepo.WithTx(gormTx)
+		if err := transferRepoTx.Create(ctx, transfer); err != nil {
+			s.txer.Rollback(tx)
+			processingTime := time.Since(startTime)
+			return &domain.TransferFlowResult{
+				Success:        false,
+				Error:          fmt.Errorf("failed to save transfer record: %w", err),
+				ProcessingTime: processingTime,
+			}, nil
+		}
+	} else {
+		s.txer.Rollback(tx)
+		processingTime := time.Since(startTime)
+		return &domain.TransferFlowResult{
+			Success:        false,
+			Error:          fmt.Errorf("invalid transaction type"),
+			ProcessingTime: processingTime,
+		}, nil
+	}
+
+	// Execute the transfer using the provider manager
+	transferResponse, err := s.providerManager.InitiateTransfer(ctx, flowData.BusinessID, flowData.TransferRequest)
 	if err != nil {
+		// Update transfer record with error
+		transfer.Status = string(domain.TransferStatusFailed)
+		transfer.VFDStatus = "99"
+		transfer.VFDMessage = "Transfer failed"
+		errorMsg := err.Error()
+		transfer.ProcessingError = &errorMsg
+		now := time.Now()
+		transfer.ProcessedAt = &now
+
+		if updateErr := transferRepoTx.Update(ctx, transfer); updateErr != nil {
+			slog.Error("Failed to update transfer status to failed", "error", updateErr)
+		}
+
+		s.txer.Rollback(tx)
 		processingTime := time.Since(startTime)
 		return &domain.TransferFlowResult{
 			Success:        false,
@@ -227,16 +302,58 @@ func (s *bulkTransferService) executeTransferFlow(ctx context.Context, flowData 
 		}, nil
 	}
 
+	// Update transfer record with success
+	transfer.Status = string(domain.TransferStatusSuccess)
+	transfer.VFDStatus = transferResponse.Status
+	transfer.VFDMessage = transferResponse.Message
+	if transferResponse.Data != nil {
+		transfer.TxnId = &transferResponse.Data.TxnId
+		if transferResponse.Data.SessionId != "" {
+			transfer.SessionId = &transferResponse.Data.SessionId
+		}
+	}
+	now := time.Now()
+	transfer.ProcessedAt = &now
+
+	if err := transferRepoTx.Update(ctx, transfer); err != nil {
+		s.txer.Rollback(tx)
+		processingTime := time.Since(startTime)
+		return &domain.TransferFlowResult{
+			Success:        false,
+			Error:          fmt.Errorf("failed to update transfer record: %w", err),
+			ProcessingTime: processingTime,
+		}, nil
+	}
+
+	if err := s.txer.Commit(tx); err != nil {
+		s.txer.Rollback(tx)
+		processingTime := time.Since(startTime)
+		return &domain.TransferFlowResult{
+			Success:        false,
+			Error:          fmt.Errorf("failed to commit transaction: %w", err),
+			ProcessingTime: processingTime,
+		}, nil
+	}
+
 	processingTime := time.Since(startTime)
 
-	// Get the transfer ID from the database (we need to query it since InitiateTransfer doesn't return it)
-	// For now, we'll use 0 as placeholder - in a real implementation, you'd want to modify InitiateTransfer to return the ID
-	transferID := uint(0) // TODO: Get actual transfer ID from database
+	slog.Info("Transfer initiated successfully",
+		"transfer_id", transfer.ID,
+		"reference", flowData.TransferRequest.Reference,
+		"status", transferResponse.Status,
+	)
 
 	return &domain.TransferFlowResult{
 		Success:        true,
-		TransferID:     transferID,
-		VFDResponse:    vfdResponse,
+		TransferID:     transfer.ID,
+		VFDResponse:    transferResponse,
 		ProcessingTime: processingTime,
 	}, nil
+}
+
+// generateSignature generates a signature using SHA512(fromAccount + toAccount)
+func (s *bulkTransferService) generateSignature(fromAccount, toAccount string) string {
+	data := fromAccount + toAccount
+	hash := sha512.Sum512([]byte(data))
+	return fmt.Sprintf("%x", hash)
 }

@@ -20,8 +20,9 @@ func NewUserRepository(db *gorm.DB) repository.UserRepository {
 }
 
 func (r *userRepository) WithTx(tx repository.Transactioner) repository.UserRepository {
-	// For now, we'll return the original repository since we can't easily convert
-	// the Transactioner interface to *gorm.DB without breaking the interface
+	if txr, ok := tx.(*transactioner); ok {
+		return &userRepository{db: txr.db}
+	}
 	return r
 }
 

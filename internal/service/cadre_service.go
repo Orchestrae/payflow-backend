@@ -10,7 +10,7 @@ import (
 // CadreService defines the interface for cadre-related business logic.
 type CadreService interface {
 	CreateCadre(ctx context.Context, cadre *domain.Cadre) (*domain.Cadre, error)
-	ListByBusinessID(ctx context.Context, businessID uint) ([]domain.Cadre, error)
+	ListByBusinessID(ctx context.Context, businessID uint) ([]*domain.Cadre, error)
 	GetByID(ctx context.Context, cadreID, businessID uint) (*domain.Cadre, error)
 	UpdateCadre(ctx context.Context, cadre *domain.Cadre) (*domain.Cadre, error)
 	DeleteCadre(ctx context.Context, cadreID, businessID uint) error
@@ -37,22 +37,13 @@ func (s *cadreService) CreateCadre(ctx context.Context, cadre *domain.Cadre) (*d
 }
 
 // ListByBusinessID retrieves all cadres for a business.
-func (s *cadreService) ListByBusinessID(ctx context.Context, businessID uint) ([]domain.Cadre, error) {
-	return s.cadreRepo.FindAllByBusinessID(ctx, businessID)
+func (s *cadreService) ListByBusinessID(ctx context.Context, businessID uint) ([]*domain.Cadre, error) {
+	return s.cadreRepo.FindByBusinessID(ctx, businessID)
 }
 
 // GetByID retrieves a specific cadre by ID, ensuring it belongs to the specified business.
 func (s *cadreService) GetByID(ctx context.Context, cadreID, businessID uint) (*domain.Cadre, error) {
-	cadre, err := s.cadreRepo.FindByID(ctx, cadreID)
-	if err != nil {
-		return nil, err
-	}
-
-	if cadre.BusinessID != businessID {
-		return nil, domain.ErrForbidden
-	}
-
-	return cadre, nil
+	return s.cadreRepo.FindByID(ctx, cadreID, businessID)
 }
 
 // UpdateCadre updates an existing cadre.
@@ -65,14 +56,5 @@ func (s *cadreService) UpdateCadre(ctx context.Context, cadre *domain.Cadre) (*d
 
 // DeleteCadre deletes a cadre, ensuring it belongs to the specified business.
 func (s *cadreService) DeleteCadre(ctx context.Context, cadreID, businessID uint) error {
-	cadre, err := s.cadreRepo.FindByID(ctx, cadreID)
-	if err != nil {
-		return err
-	}
-
-	if cadre.BusinessID != businessID {
-		return domain.ErrForbidden
-	}
-
-	return s.cadreRepo.Delete(ctx, cadreID)
+	return s.cadreRepo.Delete(ctx, cadreID, businessID)
 }

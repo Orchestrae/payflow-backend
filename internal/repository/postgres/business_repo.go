@@ -19,8 +19,9 @@ func NewBusinessRepository(db *gorm.DB) repository.BusinessRepository {
 
 // WithTx allows this repository to be used within a transaction.
 func (r *businessRepository) WithTx(tx repository.Transactioner) repository.BusinessRepository {
-	// For now, we'll return the original repository since we can't easily convert
-	// the Transactioner interface to *gorm.DB without breaking the interface
+	if txr, ok := tx.(*transactioner); ok {
+		return &businessRepository{db: txr.db}
+	}
 	return r
 }
 

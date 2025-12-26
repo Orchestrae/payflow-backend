@@ -19,19 +19,32 @@ func NewPayoutService(client *Client) service.PayoutService {
 }
 
 func (s *payoutService) DisburseBulkPayment(ctx context.Context, run domain.PayrollRun) (string, error) {
-	destinations := make([]BulkPayoutDestination, len(run.Entries))
+	// Convert payroll run entries to Korapay bulk payout items
+	payouts := make([]BulkPayoutItem, len(run.Entries))
 	for i, entry := range run.Entries {
-		destinations[i] = BulkPayoutDestination{
-			BankAccount: entry.Employee.BankAccountNumber,
-			BankCode:    "058",                         // HARDCODED for MVP. Production needs a Bank Name -> Code mapping!
-			Amount:      float64(entry.NetPay) / 100.0, // Convert from cents to main currency unit
-			Currency:    "NGN",                         // HARDCODED for MVP.
+		payouts[i] = BulkPayoutItem{
+			Reference: fmt.Sprintf("PAYFLOW-RUN-%d-ENTRY-%d", run.ID, entry.Employee.ID),
+			Amount:    float64(entry.NetPay) / 100.0, // Convert from cents to main currency unit
+			Type:      "bank_account",
+			Narration: fmt.Sprintf("Payroll payment for %s", entry.Employee.FullName),
+			BankAccount: &BankAccountDestination{
+				Bank:    "058", // HARDCODED for MVP. Production needs a Bank Name -> Code mapping!
+				Account: entry.Employee.BankAccountNumber,
+			},
+			Customer: Customer{
+				Name:  entry.Employee.FullName,
+				Email: "", // Can be enhanced to include employee email if available
+			},
 		}
 	}
 
+	// Create bulk payout request matching actual Korapay API structure
 	koraRequest := BulkPayoutRequest{
-		Reference:    fmt.Sprintf("PAYFLOW-RUN-%d-%d", run.ID, time.Now().Unix()),
-		Destinations: destinations,
+		BatchReference:    fmt.Sprintf("PAYFLOW-RUN-%d-%d", run.ID, time.Now().Unix()),
+		Description:       fmt.Sprintf("Payroll run %d", run.ID),
+		MerchantBearsCost: true,
+		Currency:          "NGN",
+		Payouts:           payouts,
 	}
 
 	resp, err := s.client.SendBulkPayout(koraRequest)
@@ -43,5 +56,9 @@ func (s *payoutService) DisburseBulkPayment(ctx context.Context, run domain.Payr
 		return "", fmt.Errorf("%w: %s", domain.ErrPaymentGatewayFailed, resp.Message)
 	}
 
-	return resp.Data.Reference, nil
+	// Return batch reference from response, or fallback to our batch reference
+	if resp.Data.Reference != "" {
+		return resp.Data.Reference, nil
+	}
+	return koraRequest.BatchReference, nil
 }

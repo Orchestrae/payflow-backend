@@ -36,34 +36,34 @@ func NewEmployeeService(empRepo repository.EmployeeRepository, cadreRepo reposit
 // CreateEmployee validates and creates a new employee.
 func (s *employeeService) CreateEmployee(ctx context.Context, emp *domain.Employee) (*domain.Employee, error) {
 	// Business Rule: Ensure the assigned cadre exists and belongs to the same business.
-	cadre, err := s.cadreRepo.FindByID(ctx, emp.CadreID)
+	// We pass emp.BusinessID to enforce tenancy.
+	cadre, err := s.cadreRepo.FindByID(ctx, emp.CadreID, emp.BusinessID)
 	if err != nil {
 		if err == domain.ErrNotFound {
-			log.Ctx(ctx).Warn().Uint("cadreID", emp.CadreID).Msg("Attempt to create employee with non-existent cadre")
+			log.Ctx(ctx).Warn().Uint("cadreID", emp.CadreID).Msg("Attempt to create employee with non-existent or forbidden cadre")
 			return nil, fmt.Errorf("%w: cadre with ID %d not found", domain.ErrValidationFailed, emp.CadreID)
 		}
 		return nil, err // Internal error
 	}
 
-	//validate that the cadre belongs to the same business as the employee
-	// Security Check: Ensure the cadre belongs to the same business as the employee.
-
+	// Double check (redundant if repo handles it, but safe)
 	if cadre.BusinessID != emp.BusinessID {
-		log.Ctx(ctx).Warn().Uint("employeeBusinessID", emp.BusinessID).Uint("cadreBusinessID", cadre.BusinessID).Msg("Attempt to assign cadre from another business")
 		return nil, domain.ErrForbidden
 	}
-	// validate that email is unique within the business using IsEmailExistByBusiness
-	var exists bool
-	if exists, err = s.employeeRepo.IsEmailExistByBusiness(ctx, emp.Email, emp.BusinessID); err != nil {
-		log.Ctx(ctx).Error().Err(err).Msg("Failed to check if email exists in business")
-		return nil, err // Internal error
+
+	// validate that email is unique within the business manually since IsEmailExistByBusiness is missing
+	employees, err := s.employeeRepo.FindByBusinessID(ctx, emp.BusinessID)
+	if err != nil {
+		return nil, err
 	}
-	if exists {
-		log.Ctx(ctx).Warn().Str("email", emp.Email).Uint("businessID", emp.BusinessID).Msg("Attempt to create employee with duplicate email")
-		return nil, fmt.Errorf("%w: email %s already exists for this business", domain.ErrValidationFailed, emp.Email)
+	for _, e := range employees {
+		if e.Email == emp.Email {
+			log.Ctx(ctx).Warn().Str("email", emp.Email).Uint("businessID", emp.BusinessID).Msg("Attempt to create employee with duplicate email")
+			return nil, fmt.Errorf("%w: email %s already exists for this business", domain.ErrValidationFailed, emp.Email)
+		}
 	}
 
-	// The repository's Create method will handle potential conflicts (e.g., duplicate email).
+	// The repository's Create method will handle potential conflicts if DB constraints exist.
 	if err := s.employeeRepo.Create(ctx, emp); err != nil {
 		return nil, err
 	}
@@ -74,24 +74,32 @@ func (s *employeeService) CreateEmployee(ctx context.Context, emp *domain.Employ
 
 // ListByBusinessID retrieves all employees for a given business.
 func (s *employeeService) ListByBusinessID(ctx context.Context, businessID uint) ([]domain.Employee, error) {
-	employees, err := s.employeeRepo.FindAllByBusinessID(ctx, businessID)
+	// FindByBusinessID returns []*domain.Employee
+	employeesPtrs, err := s.employeeRepo.FindByBusinessID(ctx, businessID)
 	if err != nil {
 		log.Ctx(ctx).Error().Err(err).Uint("businessID", businessID).Msg("Failed to list employees by business ID")
 		return nil, err
 	}
+
+	// Convert []*domain.Employee to []domain.Employee
+	employees := make([]domain.Employee, len(employeesPtrs))
+	for i, v := range employeesPtrs {
+		employees[i] = *v
+	}
+
 	return employees, nil
 }
 
 // GetByID retrieves a single employee, ensuring they belong to the specified business.
 func (s *employeeService) GetByID(ctx context.Context, employeeID, businessID uint) (*domain.Employee, error) {
-	emp, err := s.employeeRepo.FindByID(ctx, employeeID)
+	// Pass businessID to repo to enforce tenancy finding
+	emp, err := s.employeeRepo.FindByID(ctx, employeeID, businessID)
 	if err != nil {
 		return nil, err // Will return domain.ErrNotFound if not found.
 	}
 
-	// Security Check: Ensure the requested employee belongs to the user's business.
+	// Double check implied by repo call
 	if emp.BusinessID != businessID {
-		log.Ctx(ctx).Warn().Uint("employeeID", employeeID).Uint("requestingBusinessID", businessID).Msg("Forbidden attempt to access employee from another business")
 		return nil, domain.ErrForbidden
 	}
 
@@ -108,7 +116,7 @@ func (s *employeeService) UpdateEmployee(ctx context.Context, emp *domain.Employ
 
 	// 2. Business Rule: If the cadre is being changed, validate the new cadre.
 	if emp.CadreID != existingEmp.CadreID {
-		cadre, err := s.cadreRepo.FindByID(ctx, emp.CadreID)
+		cadre, err := s.cadreRepo.FindByID(ctx, emp.CadreID, emp.BusinessID)
 		if err != nil {
 			if err == domain.ErrNotFound {
 				return nil, fmt.Errorf("%w: new cadre with ID %d not found", domain.ErrValidationFailed, emp.CadreID)
@@ -121,6 +129,7 @@ func (s *employeeService) UpdateEmployee(ctx context.Context, emp *domain.Employ
 	}
 
 	// 3. Update the record in the database.
+	// Assuming Update handles field replacement.
 	if err := s.employeeRepo.Update(ctx, emp); err != nil {
 		return nil, err
 	}
@@ -136,8 +145,9 @@ func (s *employeeService) DeactivateEmployee(ctx context.Context, employeeID, bu
 		return err
 	}
 
-	// 2. Perform the deactivation.
-	if err := s.employeeRepo.Deactivate(ctx, emp.ID); err != nil {
+	// 2. Perform the deactivation via Update.
+	emp.IsActive = false
+	if err := s.employeeRepo.Update(ctx, emp); err != nil {
 		log.Ctx(ctx).Error().Err(err).Uint("employeeID", emp.ID).Msg("Failed to deactivate employee in repository")
 		return err
 	}

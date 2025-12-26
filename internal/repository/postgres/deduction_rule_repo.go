@@ -24,17 +24,21 @@ func (r *deductionRuleRepository) Update(ctx context.Context, rule *domain.Deduc
 	return r.db.WithContext(ctx).Save(rule).Error
 }
 
-func (r *deductionRuleRepository) FindByID(ctx context.Context, id uint) (*domain.DeductionRule, error) {
+func (r *deductionRuleRepository) FindByID(ctx context.Context, id uint, businessID uint) (*domain.DeductionRule, error) {
 	var rule domain.DeductionRule
-	err := r.db.WithContext(ctx).First(&rule, id).Error
+	err := r.db.WithContext(ctx).
+		Where("id = ? AND business_id = ?", id, businessID).
+		First(&rule).Error
 	if err != nil {
 		return nil, err
 	}
 	return &rule, nil
 }
 
-func (r *deductionRuleRepository) Delete(ctx context.Context, id uint) error {
-	result := r.db.WithContext(ctx).Delete(&domain.DeductionRule{}, id)
+func (r *deductionRuleRepository) Delete(ctx context.Context, id uint, businessID uint) error {
+	result := r.db.WithContext(ctx).
+		Where("business_id = ?", businessID).
+		Delete(&domain.DeductionRule{}, id)
 	if result.Error != nil {
 		return result.Error
 	}
@@ -44,7 +48,7 @@ func (r *deductionRuleRepository) Delete(ctx context.Context, id uint) error {
 	return nil
 }
 
-func (r *deductionRuleRepository) FindAllByBusinessID(ctx context.Context, businessID uint) ([]domain.DeductionRule, error) {
+func (r *deductionRuleRepository) FindByBusinessID(ctx context.Context, businessID uint) ([]*domain.DeductionRule, error) {
 	var rules []domain.DeductionRule
 	err := r.db.WithContext(ctx).
 		Where("business_id = ?", businessID).
@@ -52,9 +56,18 @@ func (r *deductionRuleRepository) FindAllByBusinessID(ctx context.Context, busin
 	if err != nil {
 		return nil, err
 	}
-	return rules, nil
+
+	domainRules := make([]*domain.DeductionRule, len(rules))
+	for i, rule := range rules {
+		r := rule // copy
+		domainRules[i] = &r
+	}
+	return domainRules, nil
 }
 
-func (r *deductionRuleRepository) WithTx(tx *gorm.DB) repository.DeductionRuleRepository {
-	return &deductionRuleRepository{db: tx}
+func (r *deductionRuleRepository) WithTx(tx repository.Transactioner) repository.DeductionRuleRepository {
+	if txr, ok := tx.(*transactioner); ok {
+		return &deductionRuleRepository{db: txr.db}
+	}
+	return r
 }

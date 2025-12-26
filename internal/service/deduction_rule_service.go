@@ -10,7 +10,7 @@ import (
 // DeductionRuleService defines the interface for deduction rule-related business logic.
 type DeductionRuleService interface {
 	CreateDeductionRule(ctx context.Context, rule *domain.DeductionRule) (*domain.DeductionRule, error)
-	ListByBusinessID(ctx context.Context, businessID uint) ([]domain.DeductionRule, error)
+	ListByBusinessID(ctx context.Context, businessID uint) ([]*domain.DeductionRule, error)
 	GetByID(ctx context.Context, ruleID, businessID uint) (*domain.DeductionRule, error)
 	UpdateDeductionRule(ctx context.Context, rule *domain.DeductionRule) (*domain.DeductionRule, error)
 	DeleteDeductionRule(ctx context.Context, ruleID, businessID uint) error
@@ -37,22 +37,13 @@ func (s *deductionRuleService) CreateDeductionRule(ctx context.Context, rule *do
 }
 
 // ListByBusinessID retrieves all deduction rules for a business.
-func (s *deductionRuleService) ListByBusinessID(ctx context.Context, businessID uint) ([]domain.DeductionRule, error) {
-	return s.deductionRuleRepo.FindAllByBusinessID(ctx, businessID)
+func (s *deductionRuleService) ListByBusinessID(ctx context.Context, businessID uint) ([]*domain.DeductionRule, error) {
+	return s.deductionRuleRepo.FindByBusinessID(ctx, businessID)
 }
 
 // GetByID retrieves a specific deduction rule by ID, ensuring it belongs to the specified business.
 func (s *deductionRuleService) GetByID(ctx context.Context, ruleID, businessID uint) (*domain.DeductionRule, error) {
-	rule, err := s.deductionRuleRepo.FindByID(ctx, ruleID)
-	if err != nil {
-		return nil, err
-	}
-
-	if rule.BusinessID != businessID {
-		return nil, domain.ErrForbidden
-	}
-
-	return rule, nil
+	return s.deductionRuleRepo.FindByID(ctx, ruleID, businessID)
 }
 
 // UpdateDeductionRule updates an existing deduction rule.
@@ -65,14 +56,5 @@ func (s *deductionRuleService) UpdateDeductionRule(ctx context.Context, rule *do
 
 // DeleteDeductionRule deletes a deduction rule, ensuring it belongs to the specified business.
 func (s *deductionRuleService) DeleteDeductionRule(ctx context.Context, ruleID, businessID uint) error {
-	rule, err := s.deductionRuleRepo.FindByID(ctx, ruleID)
-	if err != nil {
-		return err
-	}
-
-	if rule.BusinessID != businessID {
-		return domain.ErrForbidden
-	}
-
-	return s.deductionRuleRepo.Delete(ctx, ruleID)
+	return s.deductionRuleRepo.Delete(ctx, ruleID, businessID)
 }

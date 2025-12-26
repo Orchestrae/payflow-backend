@@ -121,7 +121,7 @@ type PayrollService interface {
 	ProcessApprovedPayroll(ctx context.Context, runID uint) error
 
 	// ListByBusinessID retrieves all payroll runs for a business
-	ListByBusinessID(ctx context.Context, businessID uint) ([]domain.PayrollRun, error)
+	ListByBusinessID(ctx context.Context, businessID uint) ([]*domain.PayrollRun, error)
 
 	// GetByID retrieves a specific payroll run by ID, ensuring it belongs to the specified business
 	GetByID(ctx context.Context, runID, businessID uint) (*domain.PayrollRun, error)
