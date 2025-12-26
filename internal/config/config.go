@@ -26,6 +26,10 @@ type Config struct {
 	VFDConsumerKey    string `mapstructure:"VFD_CONSUMER_KEY"`
 	VFDConsumerSecret string `mapstructure:"VFD_CONSUMER_SECRET"`
 	VFDBaseURL        string `mapstructure:"VFD_BASE_URL"`
+
+	// Transfer Provider Configuration
+	TransferDefaultProvider    string `mapstructure:"TRANSFER_DEFAULT_PROVIDER"`
+	TransferProviderFallbackOrder string `mapstructure:"TRANSFER_PROVIDER_FALLBACK_ORDER"`
 }
 
 // Load loads configuration from the environment.
@@ -38,6 +42,9 @@ func Load() (*Config, error) {
 	viper.SetDefault("KORAPAY_BASE_URL", "https://api.korapay.com/v1")
 	// Setting the default VFD base URL for the development environment
 	viper.SetDefault("VFD_BASE_URL", "https://api-devapps.vfdbank.systems")
+	// Default transfer provider configuration
+	viper.SetDefault("TRANSFER_DEFAULT_PROVIDER", "vfd")
+	viper.SetDefault("TRANSFER_PROVIDER_FALLBACK_ORDER", "")
 	// Tell viper to look for an .env file
 	viper.AddConfigPath(".")
 	viper.SetConfigName(".env")

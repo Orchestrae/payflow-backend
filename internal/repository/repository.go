@@ -8,73 +8,96 @@ import (
 	"gorm.io/gorm"
 )
 
-// Transactioner defines an interface for managing database transactions.
-type Transactioner interface {
-	Begin(ctx context.Context) *gorm.DB
-	Commit(tx *gorm.DB) error
-	Rollback(tx *gorm.DB)
-}
-
-// WithTx is an interface for repositories that can operate within a transaction.
-type WithTx interface {
-	WithTx(tx *gorm.DB) any // Returns a new repository instance with the transaction
-}
-
-// BaseRepository defines common methods for all repositories.
-type BaseRepository[T any] interface {
-	Create(ctx context.Context, entity *T) error
-	Update(ctx context.Context, entity *T) error
-	FindByID(ctx context.Context, id uint) (*T, error)
-	Delete(ctx context.Context, id uint) error
-}
-
-// UserRepository defines the contract for user data operations.
+// UserRepository defines the interface for user data operations
 type UserRepository interface {
-	BaseRepository[domain.User]
-	WithTx(tx *gorm.DB) UserRepository
+	Create(ctx context.Context, user *domain.User) error
+	FindByID(ctx context.Context, id uint) (*domain.User, error)
 	FindByEmail(ctx context.Context, email string) (*domain.User, error)
-	FindApproversByBusinessID(ctx context.Context, businessID uint) ([]domain.User, error)
-	FindOperatorsByBusinessID(ctx context.Context, businessID uint) ([]domain.User, error)
+	FindByBusinessID(ctx context.Context, businessID uint) ([]*domain.User, error)
+	Update(ctx context.Context, user *domain.User) error
+	Delete(ctx context.Context, id uint) error
+	WithTx(tx Transactioner) UserRepository
 }
 
-// BusinessRepository defines the contract for business data operations.
+// BusinessRepository defines the interface for business data operations
 type BusinessRepository interface {
-	BaseRepository[domain.Business]
-	WithTx(tx *gorm.DB) BusinessRepository
+	Create(ctx context.Context, business *domain.Business) error
+	FindByID(ctx context.Context, id uint) (*domain.Business, error)
+	FindByRCNumber(ctx context.Context, rcNumber string) (*domain.Business, error)
+	Update(ctx context.Context, business *domain.Business) error
+	Delete(ctx context.Context, id uint) error
+	WithTx(tx Transactioner) BusinessRepository
 }
 
-// CadreRepository defines the contract for cadre data operations.
-type CadreRepository interface {
-	BaseRepository[domain.Cadre]
-	WithTx(tx *gorm.DB) CadreRepository
-	FindAllByBusinessID(ctx context.Context, businessID uint) ([]domain.Cadre, error)
-	FindByID(ctx context.Context, cadreID uint) (*domain.Cadre, error)
-}
-
-// EmployeeRepository defines the contract for employee data operations.
+// EmployeeRepository defines the interface for employee data operations
 type EmployeeRepository interface {
-	BaseRepository[domain.Employee]
-	WithTx(tx *gorm.DB) EmployeeRepository
-	FindAllByBusinessID(ctx context.Context, businessID uint) ([]domain.Employee, error)
-	FindActiveByBusinessID(ctx context.Context, businessID uint) ([]domain.Employee, error)
-	Create(ctx context.Context, emp *domain.Employee) error
-	FindByID(ctx context.Context, employeeID uint) (*domain.Employee, error)
-	Update(ctx context.Context, emp *domain.Employee) error
-	Deactivate(ctx context.Context, employeeID uint) error
-	FindEmailByBusiness(ctx context.Context, email string, businessID uint) (*domain.Employee, error)
-	IsEmailExistByBusiness(ctx context.Context, email string, businessID uint) (bool, error)
+	Create(ctx context.Context, employee *domain.Employee) error
+	FindByID(ctx context.Context, id uint, businessID uint) (*domain.Employee, error)
+	FindByBusinessID(ctx context.Context, businessID uint) ([]*domain.Employee, error)
+	Update(ctx context.Context, employee *domain.Employee) error
+	Delete(ctx context.Context, id uint, businessID uint) error
+	WithTx(tx Transactioner) EmployeeRepository
 }
 
-// PayrollRepository defines the contract for payroll data operations.
+// CadreRepository defines the interface for cadre data operations
+type CadreRepository interface {
+	Create(ctx context.Context, cadre *domain.Cadre) error
+	FindByID(ctx context.Context, id uint, businessID uint) (*domain.Cadre, error)
+	FindByBusinessID(ctx context.Context, businessID uint) ([]*domain.Cadre, error)
+	Update(ctx context.Context, cadre *domain.Cadre) error
+	Delete(ctx context.Context, id uint, businessID uint) error
+	WithTx(tx Transactioner) CadreRepository
+}
+
+// PayrollRepository defines the interface for payroll data operations
 type PayrollRepository interface {
-	BaseRepository[domain.PayrollRun]
-	WithTx(tx *gorm.DB) PayrollRepository
-	FindAllByBusinessID(ctx context.Context, businessID uint) ([]domain.PayrollRun, error)
+	Create(ctx context.Context, run *domain.PayrollRun) error
+	FindByID(ctx context.Context, id uint, businessID uint) (*domain.PayrollRun, error)
+	FindByBusinessID(ctx context.Context, businessID uint) ([]*domain.PayrollRun, error)
+	Update(ctx context.Context, run *domain.PayrollRun) error
+	Delete(ctx context.Context, id uint, businessID uint) error
+	WithTx(tx Transactioner) PayrollRepository
 }
 
-// DeductionRuleRepository defines the contract for deduction rule data operations.
+// DeductionRuleRepository defines the interface for deduction rule data operations
 type DeductionRuleRepository interface {
-	BaseRepository[domain.DeductionRule]
-	WithTx(tx *gorm.DB) DeductionRuleRepository
-	FindAllByBusinessID(ctx context.Context, businessID uint) ([]domain.DeductionRule, error)
+	Create(ctx context.Context, rule *domain.DeductionRule) error
+	FindByID(ctx context.Context, id uint, businessID uint) (*domain.DeductionRule, error)
+	FindByBusinessID(ctx context.Context, businessID uint) ([]*domain.DeductionRule, error)
+	Update(ctx context.Context, rule *domain.DeductionRule) error
+	Delete(ctx context.Context, id uint, businessID uint) error
+	WithTx(tx Transactioner) DeductionRuleRepository
+}
+
+// VFDWebhookNotificationRepository defines the interface for VFD webhook notification data operations
+type VFDWebhookNotificationRepository interface {
+	Create(ctx context.Context, notification *domain.VFDWebhookNotification) error
+	FindByID(ctx context.Context, id uint) (*domain.VFDWebhookNotification, error)
+	FindByReference(ctx context.Context, reference string) (*domain.VFDWebhookNotification, error)
+	FindBySessionID(ctx context.Context, sessionID string) (*domain.VFDWebhookNotification, error)
+	FindByBusinessID(ctx context.Context, businessID uint, page, limit int) ([]*domain.VFDWebhookNotification, int, error)
+	FindByAccountNumber(ctx context.Context, accountNumber string, page, limit int) ([]*domain.VFDWebhookNotification, int, error)
+	Update(ctx context.Context, notification *domain.VFDWebhookNotification) error
+	Delete(ctx context.Context, id uint) error
+	WithTx(tx *gorm.DB) VFDWebhookNotificationRepository
+}
+
+// VFDTransferRepository defines the interface for VFD transfer data operations
+type VFDTransferRepository interface {
+	Create(ctx context.Context, transfer *domain.TransferRecord) error
+	FindByID(ctx context.Context, id uint) (*domain.TransferRecord, error)
+	FindByReference(ctx context.Context, reference string) (*domain.TransferRecord, error)
+	FindByBusinessID(ctx context.Context, businessID uint, page, limit int) ([]*domain.TransferRecord, int, error)
+	FindByFromAccount(ctx context.Context, fromAccount string, page, limit int) ([]*domain.TransferRecord, int, error)
+	FindByToAccount(ctx context.Context, toAccount string, page, limit int) ([]*domain.TransferRecord, int, error)
+	Update(ctx context.Context, transfer *domain.TransferRecord) error
+	Delete(ctx context.Context, id uint) error
+	WithTx(tx *gorm.DB) VFDTransferRepository
+}
+
+// Transactioner defines the interface for database transactions
+type Transactioner interface {
+	Begin(ctx context.Context) interface{}
+	Commit(tx interface{}) error
+	Rollback(tx interface{}) error
 }

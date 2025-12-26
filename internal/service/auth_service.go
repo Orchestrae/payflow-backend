@@ -65,7 +65,25 @@ func (s *authService) RegisterBusiness(ctx context.Context, name, email, passwor
 		IncorporationDate: &incorporationDate,
 		DirectorBVN:       &directorBVN,
 	}
-	businessRepoTx := s.businessRepo.WithTx(tx)
+
+	// Cast tx to repository.Transactioner because WithTx expects it.
+	// We assume tx returned by Begin satisfies this, but it returns interface{}.
+	// If the underlying repo expects *gorm.DB, we might need to change how we pass it.
+	// But based on repository.go, WithTx takes Transactioner.
+	// If txer is properly implemented, tx should be a Transactioner.
+	// Wait, if tx is *gorm.DB, it DOES implement Transactioner methods (Begin, Commit, Rollback).
+	// So we can assert it.
+	txerObj, ok := tx.(repository.Transactioner)
+	if !ok {
+		// Fallback: If it's *gorm.DB, it technically matches the interface but maybe not explicitly?
+		// Actually, *gorm.DB has Begin(), Commit(), Rollback().
+		// But WithTx in repository.go might be expecting the interface.
+		// Let's try assertion.
+		s.txer.Rollback(tx)
+		return nil, nil, fmt.Errorf("transaction object does not implement Transactioner interface")
+	}
+
+	businessRepoTx := s.businessRepo.WithTx(txerObj)
 	if err := businessRepoTx.Create(ctx, business); err != nil {
 		s.txer.Rollback(tx)
 		if err == domain.ErrConflict { // Assuming repo can detect this
@@ -84,7 +102,7 @@ func (s *authService) RegisterBusiness(ctx context.Context, name, email, passwor
 	}
 
 	// Use a specific user repository that is aware of the transaction
-	userRepoTx := s.userRepo.WithTx(tx)
+	userRepoTx := s.userRepo.WithTx(txerObj)
 	if err := userRepoTx.Create(ctx, adminUser); err != nil {
 		s.txer.Rollback(tx)
 		if err == domain.ErrConflict {

@@ -22,6 +22,9 @@ func NewRouter(
 	cadreSvc service.CadreService,
 	deductionSvc service.DeductionRuleService,
 	payrollSvc service.PayrollService,
+	webhookSvc service.VFDWebhookService,
+	transferSvc service.VFDTransferService,
+	bulkTransferSvc service.BulkTransferService,
 ) http.Handler {
 	r := chi.NewRouter()
 
@@ -44,6 +47,9 @@ func NewRouter(
 	cadreHandler := handler.NewCadreHandler(cadreSvc)
 	deductionHandler := handler.NewDeductionRuleHandler(deductionSvc)
 	payrollHandler := handler.NewPayrollHandler(payrollSvc)
+	webhookHandler := handler.NewVFDWebhookHandler(webhookSvc)
+	transferHandler := handler.NewVFDTransferHandler(transferSvc)
+	bulkTransferHandler := handler.NewBulkTransferHandler(bulkTransferSvc)
 
 	// --- Public Routes ---
 	// No authentication required for these endpoints.
@@ -52,6 +58,14 @@ func NewRouter(
 		r.Post("/login", authHandler.Login)
 		// r.Post("/forgot-password", authHandler.ForgotPassword)
 		// r.Post("/reset-password", authHandler.ResetPassword)
+	})
+
+	// --- VFD Webhook Routes ---
+	// These are public endpoints that VFD will call
+	r.Route("/vfd/webhooks", func(r chi.Router) {
+		r.Post("/inward-credit", webhookHandler.HandleInwardCreditWebhook)
+		r.Post("/initial-inward-credit", webhookHandler.HandleInitialInwardCreditWebhook)
+		r.Post("/retrigger", webhookHandler.RetriggerWebhook)
 	})
 
 	// --- Protected API v1 Group ---
@@ -113,6 +127,35 @@ func NewRouter(
 
 			// User/Team Management could go here
 			// r.Route("/users", ...)
+		})
+
+		// --- Webhook Management Routes ---
+		// These routes require authentication and are for viewing webhook notifications
+		r.Route("/vfd/webhooks", func(r chi.Router) {
+			r.Get("/", webhookHandler.ListWebhookNotifications)
+			r.Get("/{id}", webhookHandler.GetWebhookNotificationByID)
+			r.Get("/account/{accountNumber}", webhookHandler.GetWebhookNotificationsByAccountNumber)
+		})
+
+		// --- VFD Transfer Routes ---
+		// These routes require authentication and are for transfer operations
+		r.Route("/vfd/transfers", func(r chi.Router) {
+			r.Get("/account-enquiry", transferHandler.HandleAccountEnquiry)
+			r.Get("/beneficiary-enquiry", transferHandler.HandleBeneficiaryEnquiry)
+			r.Get("/banks", transferHandler.HandleGetBankList)
+			r.Post("/initiate", transferHandler.HandleInitiateTransfer)
+			r.Get("/", transferHandler.HandleListTransfers)
+			r.Get("/{id}", transferHandler.HandleGetTransferByID)
+			r.Get("/from-account", transferHandler.HandleGetTransfersByFromAccount)
+			r.Get("/to-account", transferHandler.HandleGetTransfersByToAccount)
+		})
+
+		// --- Bulk Transfer Routes ---
+		// These routes require authentication and are for bulk transfer operations
+		r.Route("/bulk-transfers", func(r chi.Router) {
+			r.Post("/single", bulkTransferHandler.HandleSingleTransfer)
+			r.Post("/batch", bulkTransferHandler.HandleBatchTransfer)
+			r.Post("/flow-data", bulkTransferHandler.HandleGetTransferFlowData)
 		})
 	})
 

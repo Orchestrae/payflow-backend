@@ -16,14 +16,31 @@ func NewTransactioner(db *gorm.DB) repository.Transactioner {
 	return &transactioner{db: db}
 }
 
-func (t *transactioner) Begin(ctx context.Context) *gorm.DB {
-	return t.db.WithContext(ctx).Begin()
+func (t *transactioner) Begin(ctx context.Context) interface{} {
+	tx := t.db.WithContext(ctx).Begin()
+	// Return a new transactioner wrapping the transaction DB session.
+	// This satisfies repository.Transactioner interface.
+	return &transactioner{db: tx}
 }
 
-func (t *transactioner) Commit(tx *gorm.DB) error {
-	return tx.Commit().Error
+func (t *transactioner) Commit(tx interface{}) error {
+	// Check if tx is *transactioner
+	if txr, ok := tx.(*transactioner); ok {
+		return txr.db.Commit().Error
+	}
+	// Fallback for raw *gorm.DB if ever used (legacy)
+	if gormTx, ok := tx.(*gorm.DB); ok {
+		return gormTx.Commit().Error
+	}
+	return nil
 }
 
-func (t *transactioner) Rollback(tx *gorm.DB) {
-	tx.Rollback()
+func (t *transactioner) Rollback(tx interface{}) error {
+	if txr, ok := tx.(*transactioner); ok {
+		return txr.db.Rollback().Error
+	}
+	if gormTx, ok := tx.(*gorm.DB); ok {
+		return gormTx.Rollback().Error
+	}
+	return nil
 }

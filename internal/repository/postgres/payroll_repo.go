@@ -70,8 +70,10 @@ func (r *PayrollRepository) CreateRun(ctx context.Context, tx *gorm.DB, run *dom
 	return r.Create(ctx, run)
 }
 
-func (r *PayrollRepository) Delete(ctx context.Context, id uint) error {
-	result := r.db.WithContext(ctx).Delete(&domain.PayrollRun{}, id)
+func (r *PayrollRepository) Delete(ctx context.Context, id uint, businessID uint) error {
+	result := r.db.WithContext(ctx).
+		Where("business_id = ?", businessID).
+		Delete(&domain.PayrollRun{}, id)
 	if result.Error != nil {
 		return result.Error
 	}
@@ -81,7 +83,7 @@ func (r *PayrollRepository) Delete(ctx context.Context, id uint) error {
 	return nil
 }
 
-func (r *PayrollRepository) FindAllByBusinessID(ctx context.Context, businessID uint) ([]domain.PayrollRun, error) {
+func (r *PayrollRepository) FindByBusinessID(ctx context.Context, businessID uint) ([]*domain.PayrollRun, error) {
 	var runs []domain.PayrollRun
 	err := r.db.WithContext(ctx).
 		Where("business_id = ?", businessID).
@@ -93,22 +95,39 @@ func (r *PayrollRepository) FindAllByBusinessID(ctx context.Context, businessID 
 	if err != nil {
 		return nil, err
 	}
-	return runs, nil
+
+	ptrRuns := make([]*domain.PayrollRun, len(runs))
+	for i, run := range runs {
+		r := run
+		ptrRuns[i] = &r
+	}
+	return ptrRuns, nil
 }
 
-func (r *PayrollRepository) FindByID(ctx context.Context, id uint) (*domain.PayrollRun, error) {
+func (r *PayrollRepository) FindByID(ctx context.Context, id uint, businessID uint) (*domain.PayrollRun, error) {
 	var run domain.PayrollRun
-	err := r.db.WithContext(ctx).
+	query := r.db.WithContext(ctx).
 		Preload("Entries").
 		Preload("Entries.Employee").
 		Preload("Entries.Details").
-		First(&run, id).Error
+		Where("id = ?", id)
+
+	// Support System Access (0)
+	if businessID != 0 {
+		query = query.Where("business_id = ?", businessID)
+	}
+
+	err := query.First(&run).Error
 	if err != nil {
 		return nil, err
 	}
 	return &run, nil
 }
 
-func (r *PayrollRepository) WithTx(tx *gorm.DB) repository.PayrollRepository {
-	return &PayrollRepository{db: tx}
+func (r *PayrollRepository) WithTx(tx repository.Transactioner) repository.PayrollRepository {
+	// Cast to *transactioner (private struct in this package)
+	if txr, ok := tx.(*transactioner); ok {
+		return &PayrollRepository{db: txr.db}
+	}
+	return r
 }
