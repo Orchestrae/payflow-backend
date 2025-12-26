@@ -1,6 +1,6 @@
 # Makefile
 
-.PHONY: all run build test lint clean help
+.PHONY: all run build test lint clean push help
 
 # Variables
 BINARY_NAME=payflow
@@ -46,6 +46,21 @@ down:
 	@echo "Stopping services with docker-compose..."
 	@$(DOCKER_COMPOSE) down
 
+# Push current branch to remote
+# Handles both new branches (sets upstream) and existing branches
+push:
+	@echo "Pushing to remote..."
+	@BRANCH=$$(git branch --show-current); \
+	git remote set-url origin https://$$(gh auth token)@github.com/Orchestrae/payflow-backend.git; \
+	if git ls-remote --heads origin $$BRANCH | grep -q $$BRANCH; then \
+		echo "Branch $$BRANCH exists on remote, pushing..."; \
+		git push origin $$BRANCH; \
+	else \
+		echo "Branch $$BRANCH is new, setting upstream..."; \
+		git push --set-upstream origin $$BRANCH; \
+	fi; \
+	git remote set-url origin https://github.com/Orchestrae/payflow-backend.git
+
 # --- Database Migrations ---
 # Ensure DSN is set in your environment or .env file for local use
 # DSN="postgres://payflow_user:payflow_secret@localhost:5432/payflow_db?sslmode=disable"
@@ -71,6 +86,7 @@ help:
 	@echo "  clean         - Remove the built binary"
 	@echo "  up            - Start services with docker-compose"
 	@echo "  down          - Stop services with docker-compose"
+	@echo "  push          - Push current branch to remote (handles new/existing branches)"
 	@echo "  migrate-create - Create a new SQL migration file"
 	@echo "  migrate-up    - Apply all up migrations"
 	@echo "  migrate-down  - Revert the last migration"
