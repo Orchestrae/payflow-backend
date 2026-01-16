@@ -61,6 +61,52 @@ migrate-down:
 	@echo "Reverting last migration..."
 	@migrate -database "$(DSN)" -path ./migrations down 1
 
+# --- Git Commands ---
+# Git username (can be set via GIT_USERNAME env var or will be prompted)
+GIT_USERNAME ?= $(shell if [ -z "$$GIT_USERNAME" ]; then read -p "Enter GitHub username: " username && echo $$username; else echo $$GIT_USERNAME; fi)
+
+# Ensures remote URL is set correctly with specified username
+git-setup:
+	@echo "Setting up git remote..."
+	@if [ -z "$(GIT_USERNAME)" ]; then \
+		read -p "Enter GitHub username: " username; \
+		git remote set-url origin https://$$username@github.com/Orchestrae/payflow-backend.git; \
+	else \
+		git remote set-url origin https://$(GIT_USERNAME)@github.com/Orchestrae/payflow-backend.git; \
+	fi
+	@echo "✅ Remote URL configured"
+
+# Pushes current branch to origin (prompts for username if not set)
+push:
+	@echo "Pushing to remote..."
+	@if [ -z "$$GIT_USERNAME" ]; then \
+		read -p "Enter GitHub username: " username; \
+		git remote set-url origin https://$$username@github.com/Orchestrae/payflow-backend.git; \
+	else \
+		git remote set-url origin https://$$GIT_USERNAME@github.com/Orchestrae/payflow-backend.git; \
+	fi
+	@git push -u origin $$(git branch --show-current)
+	@echo "✅ Push successful!"
+
+# Pushes current branch (assumes remote is already configured)
+push-fast:
+	@echo "Pushing to remote..."
+	@git push -u origin $$(git branch --show-current)
+	@echo "✅ Push successful!"
+
+# Creates a new branch and pushes it
+push-new:
+	@read -p "Enter branch name: " branch; \
+	if [ -z "$$GIT_USERNAME" ]; then \
+		read -p "Enter GitHub username: " username; \
+		git remote set-url origin https://$$username@github.com/Orchestrae/payflow-backend.git; \
+	else \
+		git remote set-url origin https://$$GIT_USERNAME@github.com/Orchestrae/payflow-backend.git; \
+	fi; \
+	git checkout -b $$branch; \
+	git push -u origin $$branch; \
+	echo "✅ Branch $$branch created and pushed!"
+
 # Displays help message
 help:
 	@echo "Available commands:"
@@ -74,3 +120,11 @@ help:
 	@echo "  migrate-create - Create a new SQL migration file"
 	@echo "  migrate-up    - Apply all up migrations"
 	@echo "  migrate-down  - Revert the last migration"
+	@echo ""
+	@echo "Git commands:"
+	@echo "  git-setup     - Configure git remote (prompts for username)"
+	@echo "  push          - Push current branch (prompts for username if GIT_USERNAME not set)"
+	@echo "  push-fast     - Push current branch (assumes remote configured)"
+	@echo "  push-new      - Create new branch and push it"
+	@echo ""
+	@echo "  Usage: GIT_USERNAME=username make push  (to avoid prompts)"
