@@ -8,6 +8,7 @@ type PayrollService interface {
 	UpdateRunStatus(ctx context.Context, runID uint, status PayrollStatus) error
 	MarkRunAsFailed(ctx context.Context, runID uint, reason string) error
 	MarkRunAsCompleted(ctx context.Context, runID uint, reference string) error
+	ProcessApprovedPayroll(ctx context.Context, runID uint) error
 }
 
 // PayoutService defines the interface for payment operations

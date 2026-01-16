@@ -32,47 +32,57 @@ func (c *cronScheduler) Stop() {
 	c.scheduler.Stop()
 }
 
+// SetPayrollService sets the payroll service after scheduler creation
+// This is needed to resolve circular dependency during initialization
+func (c *cronScheduler) SetPayrollService(payrollSvc domain.PayrollService) {
+	c.payrollSvc = payrollSvc
+	log.Info().Msg("Payroll service set on scheduler")
+}
+
 func (c *cronScheduler) SchedulePayout(run domain.PayrollRun) error {
 	jobID := fmt.Sprintf("payout-run-%d", run.ID)
 
-	_, err := c.scheduler.Every(1).Day().At(run.ScheduledFor.Format("15:04")).Do(
-		func(runID uint, businessID uint) {
-			log.Info().Uint("runID", runID).Msg("Executing scheduled payout job")
-
-			// 1. Fetch the latest run details to prevent stale data
-			freshRun, err := c.payrollSvc.GetPayrollRunForDisbursement(context.Background(), runID)
-			if err != nil {
-				log.Error().Err(err).Uint("runID", runID).Msg("Failed to fetch run details")
-				return
-			}
-
-			// 2. Mark as processing
-			if err := c.payrollSvc.UpdateRunStatus(context.Background(), runID, domain.StatusProcessing); err != nil {
-				log.Error().Err(err).Uint("runID", runID).Msg("Failed to update run status")
-				return
-			}
-
-			// 3. Call the payment gateway
-			ref, err := c.payoutSvc.DisburseBulkPayment(context.Background(), *freshRun)
-			if err != nil {
-				log.Error().Err(err).Uint("runID", runID).Msg("Disbursement failed")
-				if err := c.payrollSvc.MarkRunAsFailed(context.Background(), runID, err.Error()); err != nil {
-					log.Error().Err(err).Uint("runID", runID).Msg("Failed to mark run as failed")
+	// Schedule the job to run at the specified time
+	// If ScheduledFor is in the past, run immediately; otherwise schedule for that time
+	scheduledTime := run.ScheduledFor
+	now := time.Now()
+	
+	var job *gocron.Job
+	var err error
+	
+	if scheduledTime.Before(now) || scheduledTime.Equal(now) {
+		// Schedule to run immediately (next second)
+		job, err = c.scheduler.Every(1).Second().LimitRunsTo(1).Do(
+			func(runID uint) {
+				log.Info().Uint("runID", runID).Msg("Executing scheduled payout job (immediate)")
+				if err := c.payrollSvc.ProcessApprovedPayroll(context.Background(), runID); err != nil {
+					log.Error().Err(err).Uint("runID", runID).Msg("Failed to process approved payroll")
 				}
-				return
-			}
-
-			log.Info().Str("reference", ref).Uint("runID", runID).Msg("Disbursement successful")
-			if err := c.payrollSvc.MarkRunAsCompleted(context.Background(), runID, ref); err != nil {
-				log.Error().Err(err).Uint("runID", runID).Msg("Failed to mark run as completed")
-			}
-		},
-		run.ID,
-		run.BusinessID,
-	)
+			},
+			run.ID,
+		)
+	} else {
+		// Schedule for specific time
+		job, err = c.scheduler.Every(1).Day().At(scheduledTime.Format("15:04")).LimitRunsTo(1).Do(
+			func(runID uint) {
+				log.Info().Uint("runID", runID).Msg("Executing scheduled payout job")
+				if err := c.payrollSvc.ProcessApprovedPayroll(context.Background(), runID); err != nil {
+					log.Error().Err(err).Uint("runID", runID).Msg("Failed to process approved payroll")
+				}
+			},
+			run.ID,
+		)
+	}
+	
 	if err != nil {
 		return fmt.Errorf("failed to schedule payout job for run %d: %w", run.ID, err)
 	}
-	log.Info().Time("scheduledFor", run.ScheduledFor).Msgf("Successfully scheduled job '%s'", jobID)
+	
+	log.Info().
+		Str("job_id", jobID).
+		Time("scheduled_for", scheduledTime).
+		Str("next_run", job.NextRun().Format(time.RFC3339)).
+		Msg("Successfully scheduled payroll payout job")
+	
 	return nil
 }

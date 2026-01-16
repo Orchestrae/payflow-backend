@@ -144,3 +144,25 @@ type VFDErrorResponse struct {
 		TxnId string `json:"txnId"`
 	} `json:"data,omitempty"`
 }
+
+// TransactionStatusResponse represents the response from transaction status query
+type TransactionStatusResponse struct {
+	Status  string                 `json:"status"`
+	Message string                 `json:"message"`
+	Data    *TransactionStatusData `json:"data,omitempty"`
+}
+
+// TransactionStatusData holds the transaction status details
+type TransactionStatusData struct {
+	TxnId             string `json:"TxnId"`
+	Amount            string `json:"amount"`
+	AccountNo         string `json:"accountNo"`
+	FromAccountNo     string `json:"fromAccountNo"`
+	TransactionStatus string `json:"transactionStatus"` // "00" = success, "99" = failed
+	TransactionDate   string `json:"transactionDate"`
+	ToBank            string `json:"toBank"`
+	FromBank          string `json:"fromBank"`
+	SessionId         string `json:"sessionId"`
+	BankTransactionId string `json:"bankTransactionId"`
+	TransactionType   string `json:"transactionType"` // OUTFLOW, INFLOW
+}

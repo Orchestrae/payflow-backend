@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"sync"
 	"time"
@@ -19,7 +20,6 @@ type Client struct {
 	consumerKey    string
 	consumerSecret string
 
-	// mu protects the accessToken field for concurrent access.
 	mu          sync.RWMutex
 	accessToken string
 }
@@ -36,168 +36,185 @@ func NewClient(baseURL, consumerKey, consumerSecret string) *Client {
 	}
 }
 
-// getAccessToken handles fetching and caching the VFD API access token.
-// It is thread-safe.
-func (c *Client) getAccessToken(ctx context.Context) (string, error) {
-	// First, try reading with a read lock for performance.
+// ============================================================================
+// Authentication
+// ============================================================================
+
+// GetAccessToken retrieves a valid access token, fetching a new one if needed.
+func (c *Client) GetAccessToken(ctx context.Context) (string, error) {
+	// Try reading with read lock first (optimistic path)
 	c.mu.RLock()
 	if c.accessToken != "" {
+		token := c.accessToken
 		c.mu.RUnlock()
-		return c.accessToken, nil
+		return token, nil
 	}
 	c.mu.RUnlock()
 
-	// If token is not available, acquire a full write lock.
+	// Need to fetch new token
+	return c.fetchNewToken(ctx)
+}
+
+// fetchNewToken fetches a new access token from VFD.
+func (c *Client) fetchNewToken(ctx context.Context) (string, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	// Double-check in case another goroutine fetched the token while we waited for the lock.
+	// Double-check after acquiring write lock
 	if c.accessToken != "" {
 		return c.accessToken, nil
 	}
 
-	// --- Fetch new token ---
-	reqBody := tokenRequest{
+	reqBody := TokenRequest{
 		ConsumerKey:    c.consumerKey,
 		ConsumerSecret: c.consumerSecret,
-		ValidityTime:   "-1", // Request a non-expiring token
+		ValidityTime:   "-1", // Non-expiring token
 	}
 
-	var tokenRespData tokenResponseData
-	// The auth URL is part of the base URL in the docs.
-	err := c.do(ctx, http.MethodPost, "/baasauth/token", nil, reqBody, &tokenRespData)
+	var tokenData TokenResponseData
+	err := c.doRequest(ctx, http.MethodPost, "/baasauth/token", nil, reqBody, &tokenData)
 	if err != nil {
-		return "", fmt.Errorf("failed to execute token request: %w", err)
+		return "", fmt.Errorf("failed to get VFD access token: %w", err)
 	}
 
-	c.accessToken = tokenRespData.AccessToken
+	c.accessToken = tokenData.AccessToken
+	slog.Info("VFD access token obtained successfully")
 	return c.accessToken, nil
 }
 
-// do is a generic helper to execute HTTP requests against the VFD API.
-func (c *Client) do(ctx context.Context, method, path string, headers map[string]string, body, result interface{}) error {
-	url := c.baseURL + path
-	var reqBodyBytes []byte
-	var err error
+// ============================================================================
+// API Request Helper
+// ============================================================================
 
+// doRequest executes an HTTP request against the VFD API.
+func (c *Client) doRequest(ctx context.Context, method, path string, headers map[string]string, body, result interface{}) error {
+	url := c.baseURL + path
+
+	// Marshal request body if provided
+	var reqBody io.Reader
 	if body != nil {
-		reqBodyBytes, err = json.Marshal(body)
+		bodyBytes, err := json.Marshal(body)
 		if err != nil {
 			return fmt.Errorf("failed to marshal request body: %w", err)
 		}
+		reqBody = bytes.NewBuffer(bodyBytes)
+		slog.Debug("VFD API request", "method", method, "path", path, "body", string(bodyBytes))
+	} else {
+		slog.Debug("VFD API request", "method", method, "path", path)
 	}
 
-	// Log the request details
-	fmt.Printf("=== VFD API Request ===\n")
-	fmt.Printf("Method: %s\n", method)
-	fmt.Printf("URL: %s\n", url)
-	fmt.Printf("Headers: %v\n", headers)
-	if body != nil {
-		fmt.Printf("Request Body: %s\n", string(reqBodyBytes))
-	}
-	fmt.Printf("=====================\n")
-
-	req, err := http.NewRequestWithContext(ctx, method, url, bytes.NewBuffer(reqBodyBytes))
+	// Create request
+	req, err := http.NewRequestWithContext(ctx, method, url, reqBody)
 	if err != nil {
-		return fmt.Errorf("failed to create http request: %w", err)
+		return fmt.Errorf("failed to create request: %w", err)
 	}
 
+	// Set headers
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Accept", "application/json")
 	for key, value := range headers {
 		req.Header.Set(key, value)
 	}
 
+	// Execute request
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
-		return fmt.Errorf("http request failed: %w", err)
+		return fmt.Errorf("HTTP request failed: %w", err)
 	}
 	defer resp.Body.Close()
 
-	// Log the response details
-	fmt.Printf("=== VFD API Response ===\n")
-	fmt.Printf("Status Code: %d\n", resp.StatusCode)
-	fmt.Printf("Response Headers: %v\n", resp.Header)
-
-	bodyBytes, err := io.ReadAll(resp.Body)
+	// Read response body
+	respBody, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return fmt.Errorf("failed to read response body: %w", err)
 	}
-	fmt.Printf("Response Body: %s\n", string(bodyBytes))
-	fmt.Printf("Response Body Length: %d\n", len(bodyBytes))
-	fmt.Printf("======================\n")
 
-	// Handle 202 Accepted responses (common for async operations)
+	slog.Debug("VFD API response",
+		"status_code", resp.StatusCode,
+		"body_length", len(respBody),
+		"body", string(respBody),
+	)
+
+	// Handle 202 Accepted - VFD returns this when credentials don't have proper access
 	if resp.StatusCode == 202 {
-		// For 202 responses, we might not get a response body
-		// This could be the case for token requests and corporate account creation
-		if path == "/baasauth/token" {
-			// For token requests with 202, we'll use a mock token for testing
-			// In production, you'd need to handle this differently
-			if tokenData, ok := result.(*tokenResponseData); ok {
-				tokenData.AccessToken = "mock-token-for-testing"
-				tokenData.Scope = "read write"
-				tokenData.TokenType = "Bearer"
-				tokenData.ExpiresIn = 3600
-				return nil
-			}
+		if len(respBody) == 0 {
+			return fmt.Errorf("VFD API returned 202 Accepted with no response body - this typically means the API credentials don't have access to this endpoint or no wallet is configured")
 		}
-
-		if path == "/corporateclient/create" {
-			// For corporate account creation with 202, we'll use mock account data for testing
-			// In production, you'd need to handle this differently (maybe polling for status)
-			if accountData, ok := result.(*corporateAccountData); ok {
-				accountData.AccountNo = "1234567890"
-				accountData.AccountName = "MOCK_ACCOUNT_NAME"
-				return nil
-			}
-		}
-
-		return fmt.Errorf("received 202 status code but no response body for path: %s", path)
 	}
 
+	// Handle non-2xx status codes
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return fmt.Errorf("received non-2xx status code: %d", resp.StatusCode)
+		return fmt.Errorf("VFD API returned status %d: %s", resp.StatusCode, string(respBody))
 	}
 
-	// If response body is empty, handle accordingly
-	if len(bodyBytes) == 0 {
-		if path == "/baasauth/token" {
-			// For empty token responses, use mock token for testing
-			if tokenData, ok := result.(*tokenResponseData); ok {
-				tokenData.AccessToken = "mock-token-for-testing"
-				tokenData.Scope = "read write"
-				tokenData.TokenType = "Bearer"
-				tokenData.ExpiresIn = 3600
-				return nil
-			}
-		}
-		return fmt.Errorf("empty response body for path: %s", path)
+	// Handle empty response
+	if len(respBody) == 0 {
+		return fmt.Errorf("VFD API returned empty response - check API credentials and wallet configuration")
 	}
 
-	// Wrap the target result struct in our generic response wrapper.
-	vfdResp := vfdResponse{Data: result}
-	if err := json.Unmarshal(bodyBytes, &vfdResp); err != nil {
-		return fmt.Errorf("failed to decode vfd response: %w", err)
+	// Parse response
+	var vfdResp VFDResponse
+	vfdResp.Data = result
+	if err := json.Unmarshal(respBody, &vfdResp); err != nil {
+		return fmt.Errorf("failed to parse VFD response: %w", err)
 	}
 
-	// This is the CRITICAL part: check the business-level status code from VFD.
-	if vfdResp.Status != "00" {
-		switch vfdResp.Message {
-		case "Company exist with same RC Number Or Company Name":
-			return ErrCompanyExists
-		case "Not Authorized to Create Clients":
-			return ErrNotAuthorized
-		case "Account Creation Failed":
-			return ErrAccountCreationFailed
-		default:
-			// For auth failures or other generic errors.
-			if path == "/baasauth/token" {
-				return ErrAuthenticationFailed
-			}
-			return fmt.Errorf("vfd api returned an error (status %s): %s", vfdResp.Status, vfdResp.Message)
-		}
+	// Check VFD business-level status
+	if err := c.checkVFDStatus(vfdResp, path); err != nil {
+		return err
 	}
 
 	return nil
+}
+
+// checkVFDStatus checks the VFD response status and returns appropriate errors.
+func (c *Client) checkVFDStatus(resp VFDResponse, path string) error {
+	// Success status codes
+	if resp.Status == "00" || resp.Status == "success" {
+		return nil
+	}
+
+	// Map VFD error codes to our errors
+	switch resp.Status {
+	case "02":
+		return fmt.Errorf("VFD signature mismatch")
+	case "98":
+		if resp.Message == "Transaction Exist" {
+			return fmt.Errorf("VFD transaction already exists")
+		}
+		if resp.Message == "Invalid uniqueSenderAccountId" {
+			return fmt.Errorf("VFD invalid sender account ID")
+		}
+		return fmt.Errorf("VFD error (98): %s", resp.Message)
+	case "99":
+		return fmt.Errorf("VFD transaction failed: %s", resp.Message)
+	case "104":
+		return fmt.Errorf("VFD account not found")
+	case "108":
+		return fmt.Errorf("VFD no transaction found")
+	case "199":
+		return fmt.Errorf("VFD transaction/session ID is mandatory")
+	case "500":
+		return fmt.Errorf("VFD internal server error")
+	default:
+		return fmt.Errorf("VFD error (status %s): %s", resp.Status, resp.Message)
+	}
+}
+
+// ============================================================================
+// Authenticated Request Helper
+// ============================================================================
+
+// doAuthenticatedRequest executes an authenticated request (includes AccessToken header).
+func (c *Client) doAuthenticatedRequest(ctx context.Context, method, path string, body, result interface{}) error {
+	token, err := c.GetAccessToken(ctx)
+	if err != nil {
+		return err
+	}
+
+	headers := map[string]string{
+		"AccessToken": token,
+	}
+
+	return c.doRequest(ctx, method, path, headers, body, result)
 }

@@ -3,61 +3,157 @@ package vfd
 
 import "time"
 
-// tokenRequest is the request body for generating a VFD access token.
-type tokenRequest struct {
-	// ConsumerKey is the wallet's unique consumer key from the VBaaS portal.
-	ConsumerKey string `json:"consumerKey"`
-	// ConsumerSecret is the wallet's unique consumer secret from the VBaaS portal.
+// ============================================================================
+// Authentication Types
+// ============================================================================
+
+// TokenRequest is the request body for generating a VFD access token.
+type TokenRequest struct {
+	ConsumerKey    string `json:"consumerKey"`
 	ConsumerSecret string `json:"consumerSecret"`
-	// ValidityTime sets the token's validity in minutes. A value of -1 creates a non-expiring token.
-	ValidityTime string `json:"validityTime"`
+	ValidityTime   string `json:"validityTime"` // "-1" for non-expiring token
 }
 
-// tokenResponseData holds the actual access token information.
-type tokenResponseData struct {
+// TokenResponseData holds the access token response from VFD.
+type TokenResponseData struct {
 	AccessToken string `json:"access_token"`
 	Scope       string `json:"scope"`
 	TokenType   string `json:"token_type"`
 	ExpiresIn   int64  `json:"expires_in"`
 }
 
-// --- Corporate Account Creation Structs ---
+// ============================================================================
+// Account Enquiry Types
+// ============================================================================
+
+// AccountEnquiryData holds account details from the enquiry endpoint.
+type AccountEnquiryData struct {
+	AccountNo          string `json:"accountNo"`
+	AccountBalance     string `json:"accountBalance"`
+	AccountId          string `json:"accountId"`
+	Client             string `json:"client"`
+	ClientId           string `json:"clientId"`
+	SavingsProductName string `json:"savingsProductName"`
+}
+
+// ============================================================================
+// Beneficiary Enquiry Types
+// ============================================================================
+
+// BeneficiaryAccount holds the account details within beneficiary response.
+type BeneficiaryAccount struct {
+	Number string `json:"number"`
+	ID     string `json:"id"`
+}
+
+// BeneficiaryEnquiryData holds beneficiary details from the enquiry endpoint.
+type BeneficiaryEnquiryData struct {
+	Name     string             `json:"name"`
+	ClientId string             `json:"clientId"`
+	BVN      string             `json:"bvn"`
+	Account  BeneficiaryAccount `json:"account"`
+	Status   string             `json:"status"`
+	Currency string             `json:"currency"`
+	Bank     string             `json:"bank"`
+}
+
+// ============================================================================
+// Bank List Types
+// ============================================================================
+
+// BankData holds bank information.
+type BankData struct {
+	Code string `json:"code"`
+	Name string `json:"name"`
+}
+
+// ============================================================================
+// Transfer Types
+// ============================================================================
+
+// TransferRequest is the request body for the transfer endpoint.
+type TransferRequest struct {
+	FromAccount           string `json:"fromAccount"`
+	UniqueSenderAccountId string `json:"uniqueSenderAccountId,omitempty"`
+	FromClientId          string `json:"fromClientId"`
+	FromClient            string `json:"fromClient"`
+	FromSavingsId         string `json:"fromSavingsId"`
+	FromBvn               string `json:"fromBvn,omitempty"`
+	ToClientId            string `json:"toClientId,omitempty"`  // Mandatory for intra
+	ToClient              string `json:"toClient"`
+	ToSavingsId           string `json:"toSavingsId,omitempty"` // Mandatory for intra
+	ToSession             string `json:"toSession,omitempty"`   // Mandatory for inter
+	ToBvn                 string `json:"toBvn,omitempty"`
+	ToAccount             string `json:"toAccount"`
+	ToBank                string `json:"toBank"`
+	Signature             string `json:"signature"`
+	Amount                string `json:"amount"`
+	Remark                string `json:"remark"`
+	TransferType          string `json:"transferType"` // "intra" or "inter"
+	Reference             string `json:"reference"`
+}
+
+// TransferResponseData holds the transfer response data.
+type TransferResponseData struct {
+	TxnId     string `json:"txnId"`
+	SessionId string `json:"sessionId,omitempty"` // Only for inter-bank
+	Reference string `json:"reference,omitempty"`
+}
+
+// ============================================================================
+// Transaction Status Query (TSQ) Types
+// ============================================================================
+
+// TransactionStatusData holds the transaction status from TSQ endpoint.
+type TransactionStatusData struct {
+	TxnId             string `json:"TxnId"`
+	Amount            string `json:"amount"`
+	AccountNo         string `json:"accountNo"`
+	FromAccountNo     string `json:"fromAccountNo"`
+	TransactionStatus string `json:"transactionStatus"`
+	TransactionDate   string `json:"transactionDate"`
+	ToBank            string `json:"toBank"`
+	FromBank          string `json:"fromBank"`
+	SessionId         string `json:"sessionId"`
+	BankTransactionId string `json:"bankTransactionId"`
+	TransactionType   string `json:"transactionType"`
+}
+
+// ============================================================================
+// Generic VFD Response Wrapper
+// ============================================================================
+
+// VFDResponse is a generic wrapper for all VFD API responses.
+type VFDResponse struct {
+	Status  string      `json:"status"`
+	Message string      `json:"message"`
+	Data    interface{} `json:"data,omitempty"`
+}
+
+// ============================================================================
+// Corporate Account Creation Types (existing)
+// ============================================================================
 
 // CreateCorporateRequest is the request body for the /corporateclient/create endpoint.
-// The `omitempty` tag is used strategically so we can use the same struct for both new and duplicate account creation.
 type CreateCorporateRequest struct {
-	// RCNumber is the company's registration certificate number. Mandatory only for new account creation.
-	RCNumber string `json:"rcNumber,omitempty"`
-	// CompanyName is the legal name of the company. Mandatory only for new account creation.
-	CompanyName string `json:"companyName,omitempty"`
-	// IncorporationDate is the date the company was incorporated. Must be in "02 January 2006" format. Mandatory only for new account creation.
+	RCNumber          string `json:"rcNumber,omitempty"`
+	CompanyName       string `json:"companyName,omitempty"`
 	IncorporationDate string `json:"incorporationDate,omitempty"`
-	// BVN is the Bank Verification Number of one of the company's directors. Mandatory only for new account creation.
-	BVN string `json:"bvn,omitempty"`
-	// PreviousAccountNo is used to create a duplicate account for an existing client. If provided, all other fields should be empty.
+	BVN               string `json:"bvn,omitempty"`
 	PreviousAccountNo string `json:"previousAccountNo,omitempty"`
 }
 
-// corporateAccountData holds the details of the successfully created account.
-type corporateAccountData struct {
+// CorporateAccountData holds the details of the successfully created account.
+type CorporateAccountData struct {
 	AccountNo   string `json:"accountNo"`
 	AccountName string `json:"accountName"`
 }
 
-// --- Generic VFD Response Wrapper ---
-
-// vfdResponse is a generic wrapper for all VFD API responses.
-// The `Data` field is an `interface{}` to handle different data structures (token vs. account).
-type vfdResponse struct {
-	Status  string      `json:"status"`
-	Message string      `json:"message"`
-	Data    interface{} `json:"data"`
-}
-
-// --- Clean, Domain-like Structs for Service Layer ---
+// ============================================================================
+// Clean Domain-like Structs for Service Layer
+// ============================================================================
 
 // NewAccountDetails is a clean struct used to pass new account information to the service.
-// This decouples the service user from VFD's specific field names.
 type NewAccountDetails struct {
 	RCNumber          string
 	CompanyName       string

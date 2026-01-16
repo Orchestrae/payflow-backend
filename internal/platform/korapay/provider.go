@@ -3,95 +3,223 @@ package korapay
 import (
 	"context"
 	"fmt"
+	"strconv"
+
 	"payflow/internal/domain"
 	"payflow/internal/service/provider"
 )
 
-// korapayTransferProvider implements the TransferProvider interface for Korapay.
-// This is in the korapay package to avoid import cycles.
+// Ensure korapayTransferProvider implements required interfaces
+var (
+	_ provider.TransferProvider = (*korapayTransferProvider)(nil)
+	_ provider.BulkTransferrer  = (*korapayTransferProvider)(nil)
+)
+
+// korapayTransferProvider implements the TransferProvider and BulkTransferrer interfaces for Korapay.
 type korapayTransferProvider struct {
 	client *Client
 }
 
 // NewTransferProvider creates a new Korapay transfer provider.
-func NewTransferProvider(client *Client) provider.TransferProvider {
+func NewTransferProvider(client *Client) *korapayTransferProvider {
 	return &korapayTransferProvider{
 		client: client,
 	}
 }
 
 // Name returns the provider identifier.
-func (p *korapayTransferProvider) Name() string {
-	return "korapay"
+func (p *korapayTransferProvider) Name() domain.ProviderName {
+	return domain.ProviderKorapay
 }
 
-// AccountEnquiry is not supported by Korapay API.
-func (p *korapayTransferProvider) AccountEnquiry(ctx context.Context, accountNumber string) (*domain.AccountEnquiryResponse, error) {
-	return nil, fmt.Errorf("account enquiry not supported by korapay provider")
-}
+// ============================================================================
+// Single Transfer (TransferProvider interface)
+// ============================================================================
 
-// BeneficiaryEnquiry is not supported by Korapay API.
-func (p *korapayTransferProvider) BeneficiaryEnquiry(ctx context.Context, accountNo, bank, transferType string) (*domain.BeneficiaryEnquiryResponse, error) {
-	return nil, fmt.Errorf("beneficiary enquiry not supported by korapay provider")
-}
-
-// GetBankList is not supported by Korapay API.
-func (p *korapayTransferProvider) GetBankList(ctx context.Context) (*domain.BankListResponse, error) {
-	return nil, fmt.Errorf("bank list not supported by korapay provider")
-}
-
-// InitiateTransfer implements the TransferProvider interface by mapping domain.TransferRequest
-// to Korapay's single disbursement API format.
-func (p *korapayTransferProvider) InitiateTransfer(ctx context.Context, businessID uint, req *domain.TransferRequest) (*domain.TransferResponse, error) {
-	// Map domain.TransferRequest to Korapay SingleDisbursementRequest
-	// Extract customer email if available (not in TransferRequest, defaulting to empty)
-	customerEmail := ""
-
-	// Create bank account destination
-	bankAccount := &BankAccountDestination{
-		Bank:    req.ToBank,
-		Account: req.ToAccount,
+// InitiateTransfer implements the TransferProvider interface.
+// Maps the unified SingleTransferRequest to Korapay's disbursement API format.
+func (p *korapayTransferProvider) InitiateTransfer(ctx context.Context, req *domain.SingleTransferRequest) (*domain.TransferResult, error) {
+	// Set default currency
+	currency := req.Currency
+	if currency == "" {
+		currency = "NGN"
 	}
 
-	// Create destination
-	destination := DisbursementDestination{
-		Type:        "bank_account",
-		Amount:      req.Amount,
-		Currency:    "NGN", // Default to NGN, can be enhanced to extract from account details
-		Narration:   req.Remark,
-		BankAccount: bankAccount,
-		Customer: Customer{
-			Name:  req.ToClient,
-			Email: customerEmail,
-		},
+	// Use business email for Korapay customer email (required by Korapay)
+	customerEmail := req.BusinessEmail
+	if customerEmail == "" {
+		// Fallback to a generic email if business email not available
+		customerEmail = fmt.Sprintf("transfer-%d@payflow.local", req.BusinessID)
 	}
 
-	// Create request
+	// Build the Korapay request
 	koraRequest := SingleDisbursementRequest{
-		Reference:   req.Reference,
-		Destination: destination,
+		Reference: req.Reference,
+		Destination: DisbursementDestination{
+			Type:      "bank_account",
+			Amount:    req.Amount,
+			Currency:  currency,
+			Narration: req.Narration,
+			BankAccount: &BankAccountDestination{
+				Bank:    req.BankCode,
+				Account: req.AccountNumber,
+			},
+			Customer: Customer{
+				Name:  req.AccountName,
+				Email: customerEmail,
+			},
+		},
 	}
 
 	// Call Korapay API
 	koraResponse, err := p.client.SendSingleDisbursement(koraRequest)
 	if err != nil {
-		return nil, fmt.Errorf("korapay single disbursement failed: %w", err)
+		return nil, fmt.Errorf("korapay disbursement failed: %w", err)
 	}
 
-	// Map Korapay response to domain.TransferResponse
-	response := &domain.TransferResponse{
-		Status:  koraResponse.Status,
-		Message: koraResponse.Message,
+	// Map response to unified format
+	return p.mapSingleResponse(req.Reference, currency, koraResponse), nil
+}
+
+// mapSingleResponse maps Korapay single disbursement response to unified TransferResult.
+func (p *korapayTransferProvider) mapSingleResponse(reference, currency string, resp *SingleDisbursementResponse) *domain.TransferResult {
+	result := &domain.TransferResult{
+		Reference: reference,
+		Provider:  domain.ProviderKorapay,
+		Currency:  currency,
 	}
 
-	// Map response data
-	if koraResponse.Data.Reference != "" {
-		response.Data = &domain.TransferData{
-			Reference: koraResponse.Data.Reference,
-			TxnId:     koraResponse.Data.Reference, // Korapay uses reference as transaction ID
+	// Korapay returns status: true/false (boolean) in top level
+	if resp.Status {
+		result.Success = true
+		result.Status = "processing" // Korapay transfers start in processing state
+		result.Message = resp.Message
+
+		// Extract data from response if available
+		if resp.Data != nil {
+			if resp.Data.Reference != "" {
+				result.TransactionID = resp.Data.Reference
+			}
+			if resp.Data.Status != "" {
+				result.Status = resp.Data.Status
+			}
+			if resp.Data.Fee != "" {
+				result.Fee = resp.Data.Fee
+			}
+		}
+	} else {
+		result.Success = false
+		result.Status = "failed"
+		result.Message = resp.Message
+	}
+
+	return result
+}
+
+// ============================================================================
+// Bulk Transfer (BulkTransferrer interface)
+// ============================================================================
+
+// MinBatchSize returns the minimum number of transfers for a batch.
+// Korapay requires at least 2 transfers per batch.
+func (p *korapayTransferProvider) MinBatchSize() int {
+	return 2
+}
+
+// MaxBatchSize returns the maximum number of transfers for a batch.
+// Korapay allows up to 50 transfers per batch.
+func (p *korapayTransferProvider) MaxBatchSize() int {
+	return 50
+}
+
+// InitiateBulkTransfer implements the BulkTransferrer interface.
+// Uses Korapay's native bulk disbursement endpoint for efficiency.
+func (p *korapayTransferProvider) InitiateBulkTransfer(ctx context.Context, req *domain.BulkTransferRequest) (*domain.BulkTransferResult, error) {
+	// Set default currency
+	currency := req.Currency
+	if currency == "" {
+		currency = "NGN"
+	}
+
+	// Build Korapay bulk payout items
+	payouts := make([]BulkPayoutItem, len(req.Transfers))
+	for i, transfer := range req.Transfers {
+		// Parse amount as float for Korapay
+		amount, err := strconv.ParseFloat(transfer.Amount, 64)
+		if err != nil {
+			return nil, fmt.Errorf("invalid amount for transfer %s: %w", transfer.Reference, err)
+		}
+
+		// Use business email or fallback
+		customerEmail := req.BusinessEmail
+		if customerEmail == "" {
+			customerEmail = fmt.Sprintf("transfer-%d@payflow.local", req.BusinessID)
+		}
+
+		payouts[i] = BulkPayoutItem{
+			Reference: transfer.Reference,
+			Amount:    amount,
+			Type:      "bank_account",
+			Narration: transfer.Narration,
+			BankAccount: &BulkBankAccountDestination{
+				BankCode:      transfer.BankCode,
+				AccountNumber: transfer.AccountNumber,
+			},
+			Customer: Customer{
+				Name:  transfer.AccountName,
+				Email: customerEmail,
+			},
 		}
 	}
 
-	return response, nil
+	// Build Korapay bulk request
+	koraRequest := BulkPayoutRequest{
+		BatchReference:    req.BatchReference,
+		Description:       req.Description,
+		MerchantBearsCost: req.MerchantBearsCost,
+		Currency:          currency,
+		Payouts:           payouts,
+	}
+
+	// Call Korapay bulk API
+	koraResponse, err := p.client.SendBulkPayout(koraRequest)
+	if err != nil {
+		return nil, fmt.Errorf("korapay bulk disbursement failed: %w", err)
+	}
+
+	// Map response to unified format
+	return p.mapBulkResponse(req.BatchReference, currency, koraResponse), nil
 }
 
+// mapBulkResponse maps Korapay bulk payout response to unified BulkTransferResult.
+func (p *korapayTransferProvider) mapBulkResponse(batchReference, currency string, resp *BulkPayoutResponse) *domain.BulkTransferResult {
+	result := &domain.BulkTransferResult{
+		BatchReference: batchReference,
+		Provider:       domain.ProviderKorapay,
+		Currency:       currency,
+	}
+
+	if resp.Status {
+		result.Success = true
+		result.Status = "pending" // Bulk transfers start as pending
+		result.Message = resp.Message
+
+		if resp.Data != nil {
+			if resp.Data.Reference != "" {
+				result.BatchReference = resp.Data.Reference
+			}
+			if resp.Data.Status != "" {
+				result.Status = resp.Data.Status
+			}
+			if resp.Data.TotalChargeableAmount > 0 {
+				result.TotalChargeableAmount = fmt.Sprintf("%.2f", resp.Data.TotalChargeableAmount)
+			}
+		}
+	} else {
+		result.Success = false
+		result.Status = "failed"
+		result.Message = resp.Message
+	}
+
+	return result
+}

@@ -25,6 +25,7 @@ func NewRouter(
 	webhookSvc service.VFDWebhookService,
 	transferSvc service.VFDTransferService,
 	bulkTransferSvc service.BulkTransferService,
+	newTransferSvc service.TransferService,
 ) http.Handler {
 	r := chi.NewRouter()
 
@@ -46,10 +47,11 @@ func NewRouter(
 	employeeHandler := handler.NewEmployeeHandler(employeeSvc)
 	cadreHandler := handler.NewCadreHandler(cadreSvc)
 	deductionHandler := handler.NewDeductionRuleHandler(deductionSvc)
-	payrollHandler := handler.NewPayrollHandler(payrollSvc)
+	payrollHandler := handler.NewPayrollHandler(payrollSvc, employeeSvc)
 	webhookHandler := handler.NewVFDWebhookHandler(webhookSvc)
 	transferHandler := handler.NewVFDTransferHandler(transferSvc)
 	bulkTransferHandler := handler.NewBulkTransferHandler(bulkTransferSvc)
+	newTransferHandler := handler.NewTransferHandler(newTransferSvc)
 
 	// --- Public Routes ---
 	// No authentication required for these endpoints.
@@ -102,6 +104,7 @@ func NewRouter(
 				r.Get("/", payrollHandler.ListPayrollRuns)
 				r.Get("/{runID}", payrollHandler.GetPayrollRunByID)
 				r.Post("/{runID}/submit", payrollHandler.SubmitForApproval)
+				r.Post("/{runID}/process-now", payrollHandler.ProcessPayrollRunInstantly) // Instant run for testing
 
 				// Approver-specific routes (Admin and Approver roles)
 				r.Group(func(r chi.Router) {
@@ -150,12 +153,21 @@ func NewRouter(
 			r.Get("/to-account", transferHandler.HandleGetTransfersByToAccount)
 		})
 
-		// --- Bulk Transfer Routes ---
+		// --- Bulk Transfer Routes (Legacy - Deprecated) ---
 		// These routes require authentication and are for bulk transfer operations
 		r.Route("/bulk-transfers", func(r chi.Router) {
 			r.Post("/single", bulkTransferHandler.HandleSingleTransfer)
 			r.Post("/batch", bulkTransferHandler.HandleBatchTransfer)
 			r.Post("/flow-data", bulkTransferHandler.HandleGetTransferFlowData)
+		})
+
+		// --- Transfer Routes (New - Provider-Agnostic) ---
+		// Clean, provider-agnostic transfer API with Korapay as primary provider
+		r.Route("/transfers", func(r chi.Router) {
+			r.Post("/", newTransferHandler.HandleSingleTransfer)
+			r.Post("/batch", newTransferHandler.HandleBatchTransfer)
+			r.Get("/", newTransferHandler.HandleListTransfers)
+			r.Get("/{id}", newTransferHandler.HandleGetTransfer)
 		})
 	})
 

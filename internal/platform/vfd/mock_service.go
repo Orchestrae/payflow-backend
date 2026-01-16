@@ -51,15 +51,21 @@ func (s *MockVFDService) AccountEnquiry(ctx context.Context, accountNumber strin
 	// Simulate a small delay to mimic real API call
 	time.Sleep(100 * time.Millisecond)
 
+	// If no account number, return pool account
+	acctNo := accountNumber
+	if acctNo == "" {
+		acctNo = "1001554791" // Pool account
+	}
+
 	return &domain.AccountEnquiryResponse{
 		Status:  "00",
 		Message: "Account Details",
 		Data: &domain.AccountEnquiryData{
-			AccountNo:          accountNumber,
+			AccountNo:          acctNo,
 			AccountBalance:     "1000000.00",
-			AccountId:          "123456",
-			Client:             "Mock Client",
-			ClientId:           "789",
+			AccountId:          "155479",
+			Client:             "Mock Pool Client",
+			ClientId:           "138421",
 			SavingsProductName: "Corporate Current Account",
 		},
 	}, nil
@@ -136,5 +142,34 @@ func (s *MockVFDService) RetriggerWebhookNotification(ctx context.Context, req *
 	return &domain.VFDRetriggerResponse{
 		Status:  "00",
 		Message: "success",
+	}, nil
+}
+
+// GetTransactionStatus implements the VFDService interface for testing
+func (s *MockVFDService) GetTransactionStatus(ctx context.Context, reference, sessionID string) (*domain.TransactionStatusResponse, error) {
+	// Simulate a small delay to mimic real API call
+	time.Sleep(100 * time.Millisecond)
+
+	txnID := reference
+	if txnID == "" {
+		txnID = sessionID
+	}
+
+	return &domain.TransactionStatusResponse{
+		Status:  "00",
+		Message: "Successful Transaction Retrieval",
+		Data: &domain.TransactionStatusData{
+			TxnId:             txnID,
+			Amount:            "1000.00",
+			AccountNo:         "0000000000",
+			FromAccountNo:     "1234567890",
+			TransactionStatus: "00",
+			TransactionDate:   "2026-01-15 12:00:00.0",
+			ToBank:            "999999",
+			FromBank:          "999999",
+			SessionId:         "mock-session-id",
+			BankTransactionId: "mock-bank-txn-id",
+			TransactionType:   "OUTFLOW",
+		},
 	}, nil
 }

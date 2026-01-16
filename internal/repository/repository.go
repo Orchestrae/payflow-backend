@@ -14,6 +14,7 @@ type UserRepository interface {
 	FindByID(ctx context.Context, id uint) (*domain.User, error)
 	FindByEmail(ctx context.Context, email string) (*domain.User, error)
 	FindByBusinessID(ctx context.Context, businessID uint) ([]*domain.User, error)
+	FindBusinessAdmin(ctx context.Context, businessID uint) (*domain.User, error)
 	Update(ctx context.Context, user *domain.User) error
 	Delete(ctx context.Context, id uint) error
 	WithTx(tx Transactioner) UserRepository
@@ -83,6 +84,7 @@ type VFDWebhookNotificationRepository interface {
 }
 
 // VFDTransferRepository defines the interface for VFD transfer data operations
+// Deprecated: Use TransferRepository instead
 type VFDTransferRepository interface {
 	Create(ctx context.Context, transfer *domain.TransferRecord) error
 	FindByID(ctx context.Context, id uint) (*domain.TransferRecord, error)
@@ -93,6 +95,17 @@ type VFDTransferRepository interface {
 	Update(ctx context.Context, transfer *domain.TransferRecord) error
 	Delete(ctx context.Context, id uint) error
 	WithTx(tx *gorm.DB) VFDTransferRepository
+}
+
+// TransferRepository defines the interface for transfer data operations (provider-agnostic)
+type TransferRepository interface {
+	Create(ctx context.Context, transfer *domain.Transfer) error
+	FindByID(ctx context.Context, id uint) (*domain.Transfer, error)
+	FindByReference(ctx context.Context, reference string) (*domain.Transfer, error)
+	FindByBusinessID(ctx context.Context, businessID uint, page, limit int) ([]*domain.Transfer, int, error)
+	Update(ctx context.Context, transfer *domain.Transfer) error
+	Delete(ctx context.Context, id uint) error
+	WithTx(tx *gorm.DB) TransferRepository
 }
 
 // Transactioner defines the interface for database transactions

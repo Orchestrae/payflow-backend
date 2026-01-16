@@ -27,9 +27,9 @@ func (s *payoutService) DisburseBulkPayment(ctx context.Context, run domain.Payr
 			Amount:    float64(entry.NetPay) / 100.0, // Convert from cents to main currency unit
 			Type:      "bank_account",
 			Narration: fmt.Sprintf("Payroll payment for %s", entry.Employee.FullName),
-			BankAccount: &BankAccountDestination{
-				Bank:    "058", // HARDCODED for MVP. Production needs a Bank Name -> Code mapping!
-				Account: entry.Employee.BankAccountNumber,
+			BankAccount: &BulkBankAccountDestination{
+				BankCode:      "058", // HARDCODED for MVP. Production needs a Bank Name -> Code mapping!
+				AccountNumber: entry.Employee.BankAccountNumber,
 			},
 			Customer: Customer{
 				Name:  entry.Employee.FullName,
@@ -52,7 +52,7 @@ func (s *payoutService) DisburseBulkPayment(ctx context.Context, run domain.Payr
 		return "", fmt.Errorf("%w: %v", domain.ErrPaymentGatewayFailed, err)
 	}
 
-	if resp.Status != "success" {
+	if !resp.Status {
 		return "", fmt.Errorf("%w: %s", domain.ErrPaymentGatewayFailed, resp.Message)
 	}
 

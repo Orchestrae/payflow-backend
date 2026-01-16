@@ -154,6 +154,7 @@ func AutoMigrateAll(db *gorm.DB) error {
 		&domain.PayrollRun{},
 		&domain.PayrollRunEntry{},
 		&domain.PayrollRunEntryDetail{},
+		&domain.Transfer{}, // New provider-agnostic transfer model
 	}
 
 	for _, model := range models {

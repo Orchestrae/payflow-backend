@@ -1,1 +1,22 @@
 .env
+
+# IDE files
+.idea/
+*.iml
+
+# Test scripts (development/testing only)
+test_*.sh
+
+# Binary files
+server
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# Test binary, benchmark binary
+*.test
+
+# Output of the go coverage tool
+*.out

@@ -28,8 +28,12 @@ type Config struct {
 	VFDBaseURL        string `mapstructure:"VFD_BASE_URL"`
 
 	// Transfer Provider Configuration
-	TransferDefaultProvider    string `mapstructure:"TRANSFER_DEFAULT_PROVIDER"`
+	TransferDefaultProvider       string `mapstructure:"TRANSFER_DEFAULT_PROVIDER"`
 	TransferProviderFallbackOrder string `mapstructure:"TRANSFER_PROVIDER_FALLBACK_ORDER"`
+
+	// Transfer Limits (in minor currency units, e.g., kobo for NGN)
+	TransferMinAmount int64 `mapstructure:"TRANSFER_MIN_AMOUNT"`
+	TransferMaxAmount int64 `mapstructure:"TRANSFER_MAX_AMOUNT"`
 }
 
 // Load loads configuration from the environment.
@@ -39,12 +43,16 @@ func Load() (*Config, error) {
 	viper.SetDefault("LOG_LEVEL", "info")
 	viper.SetDefault("LOG_PRETTY", false)
 	viper.SetDefault("JWT_EXPIRATION_HOURS", 72)
-	viper.SetDefault("KORAPAY_BASE_URL", "https://api.korapay.com/v1")
+	viper.SetDefault("KORAPAY_BASE_URL", "https://api.korapay.com")
 	// Setting the default VFD base URL for the development environment
 	viper.SetDefault("VFD_BASE_URL", "https://api-devapps.vfdbank.systems")
-	// Default transfer provider configuration
-	viper.SetDefault("TRANSFER_DEFAULT_PROVIDER", "vfd")
-	viper.SetDefault("TRANSFER_PROVIDER_FALLBACK_ORDER", "")
+	// Default transfer provider configuration - Korapay is primary, VFD is fallback
+	viper.SetDefault("TRANSFER_DEFAULT_PROVIDER", "korapay")
+	viper.SetDefault("TRANSFER_PROVIDER_FALLBACK_ORDER", "vfd")
+
+	// Transfer limits - Korapay requires minimum NGN 1000 (100000 kobo) and max NGN 10,000,000
+	viper.SetDefault("TRANSFER_MIN_AMOUNT", 1000)    // NGN 1000 minimum
+	viper.SetDefault("TRANSFER_MAX_AMOUNT", 10000000) // NGN 10,000,000 maximum
 	// Tell viper to look for an .env file
 	viper.AddConfigPath(".")
 	viper.SetConfigName(".env")
