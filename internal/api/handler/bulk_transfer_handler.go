@@ -11,6 +11,8 @@ import (
 	"github.com/go-playground/validator/v10"
 )
 
+// BulkTransferHandler handles legacy bulk transfer requests
+// DEPRECATED: Use TransferHandler instead
 type BulkTransferHandler struct {
 	bulkTransferService service.BulkTransferService
 	validate            *validator.Validate
@@ -24,6 +26,7 @@ func NewBulkTransferHandler(bulkTransferService service.BulkTransferService) *Bu
 }
 
 // HandleSingleTransfer handles a single transfer request
+// DEPRECATED: Use TransferHandler.HandleSingleTransfer instead
 func (h *BulkTransferHandler) HandleSingleTransfer(w http.ResponseWriter, r *http.Request) {
 	var req request.BulkTransferRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -44,7 +47,7 @@ func (h *BulkTransferHandler) HandleSingleTransfer(w http.ResponseWriter, r *htt
 	}
 
 	// Convert request to domain model
-	bulkTransferReq := &domain.BulkTransferRequest{
+	bulkTransferReq := &domain.LegacyBulkTransferRequest{
 		FromAccountNumber:  req.FromAccountNumber,
 		ToAccountNumber:    req.ToAccountNumber,
 		ToBankCode:         req.ToBankCode,
@@ -122,6 +125,7 @@ func (h *BulkTransferHandler) HandleSingleTransfer(w http.ResponseWriter, r *htt
 }
 
 // HandleBatchTransfer handles a batch of transfer requests
+// DEPRECATED: Use TransferHandler.HandleBatchTransfer instead
 func (h *BulkTransferHandler) HandleBatchTransfer(w http.ResponseWriter, r *http.Request) {
 	var req request.BulkTransferBatchRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -142,9 +146,9 @@ func (h *BulkTransferHandler) HandleBatchTransfer(w http.ResponseWriter, r *http
 	}
 
 	// Convert request to domain model
-	bulkTransferReqs := make([]domain.BulkTransferRequest, len(req.Transfers))
+	bulkTransferReqs := make([]domain.LegacyBulkTransferRequest, len(req.Transfers))
 	for i, transferReq := range req.Transfers {
-		bulkTransferReqs[i] = domain.BulkTransferRequest{
+		bulkTransferReqs[i] = domain.LegacyBulkTransferRequest{
 			FromAccountNumber:  transferReq.FromAccountNumber,
 			ToAccountNumber:    transferReq.ToAccountNumber,
 			ToBankCode:         transferReq.ToBankCode,
@@ -158,7 +162,7 @@ func (h *BulkTransferHandler) HandleBatchTransfer(w http.ResponseWriter, r *http
 		}
 	}
 
-	batchReq := &domain.BulkTransferBatchRequest{
+	batchReq := &domain.LegacyBulkTransferBatchRequest{
 		Transfers: bulkTransferReqs,
 	}
 
@@ -238,6 +242,7 @@ func (h *BulkTransferHandler) HandleBatchTransfer(w http.ResponseWriter, r *http
 }
 
 // HandleGetTransferFlowData handles getting transfer flow data without executing the transfer
+// DEPRECATED: Not needed with new provider-agnostic design
 func (h *BulkTransferHandler) HandleGetTransferFlowData(w http.ResponseWriter, r *http.Request) {
 	var req request.BulkTransferRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -258,7 +263,7 @@ func (h *BulkTransferHandler) HandleGetTransferFlowData(w http.ResponseWriter, r
 	}
 
 	// Convert request to domain model
-	bulkTransferReq := &domain.BulkTransferRequest{
+	bulkTransferReq := &domain.LegacyBulkTransferRequest{
 		FromAccountNumber:  req.FromAccountNumber,
 		ToAccountNumber:    req.ToAccountNumber,
 		ToBankCode:         req.ToBankCode,

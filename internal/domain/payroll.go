@@ -60,4 +60,5 @@ type PayrollRunEntryDetail struct {
 	Type              PayrollEntryDetailType `gorm:"type:varchar(20)"`
 	Name              string                 `gorm:"size:255"`
 	Amount            int64                  `gorm:""` // Always a positive value
+	Description       string                 `gorm:"size:500"` // Optional description for historical tracking
 }

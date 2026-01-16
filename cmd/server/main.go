@@ -6,8 +6,6 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
-	"payflow/internal/platform/vfd"
-	vfd2 "payflow/internal/service/vfd"
 	"syscall"
 	"time"
 
@@ -16,13 +14,16 @@ import (
 
 	"payflow/internal/api"
 	"payflow/internal/config"
+	"payflow/internal/domain"
 	"payflow/internal/platform/database"
 	"payflow/internal/platform/korapay"
 	"payflow/internal/platform/scheduler"
 	"payflow/internal/platform/sendgrid" // Using Mailhog/Sendgrid as example
+	"payflow/internal/platform/vfd"
 	"payflow/internal/repository/postgres"
 	"payflow/internal/service"
 	"payflow/internal/service/provider"
+	vfd2 "payflow/internal/service/vfd"
 )
 
 func main() {
@@ -80,12 +81,12 @@ func main() {
 	webhookSvc := vfd2.NewVFDWebhookService(webhookRepo, businessRepo, vfdSvc, txer)
 	transferSvc := vfd2.NewVFDTransferService(transferRepo, vfdSvc, txer)
 
-	// Initialize transfer providers
-	providers := make(map[string]provider.TransferProvider)
+	// Initialize transfer providers with new interface
+	providers := make(map[domain.ProviderName]provider.TransferProvider)
 	vfdProvider := provider.NewVFDProvider(vfdSvc)
 	korapayProvider := korapay.NewTransferProvider(koraClient)
-	providers[provider.ProviderNameVFD] = vfdProvider
-	providers[provider.ProviderNameKorapay] = korapayProvider
+	providers[domain.ProviderVFD] = vfdProvider
+	providers[domain.ProviderKorapay] = korapayProvider
 
 	// Create provider manager
 	providerManager, err := provider.NewTransferProviderManager(
@@ -98,10 +99,20 @@ func main() {
 	}
 	log.Info().Msgf("Transfer provider manager initialized with default provider: %s", cfg.TransferDefaultProvider)
 
+	// New transfer repository and service (provider-agnostic)
+	newTransferRepo := postgres.NewTransferRepository(db)
+	transferConfig := service.TransferConfig{
+		MinAmount: cfg.TransferMinAmount,
+		MaxAmount: cfg.TransferMaxAmount,
+	}
+	transferSvcNew := service.NewTransferService(providerManager, newTransferRepo, userRepo, txer, transferConfig)
+	log.Info().Msgf("Transfer service initialized with limits: min=%d, max=%d", cfg.TransferMinAmount, cfg.TransferMaxAmount)
+
+	// Keep legacy bulk transfer service for backward compatibility (deprecated)
 	bulkTransferSvc := service.NewBulkTransferService(providerManager, transferRepo, txer)
 
 	// --- Phase 4: Resolving the Scheduler <-> Service Circular Dependency ---
-	// 1. Create the scheduler. It depends on an interface that the PayrollService will implement.
+	// 1. Create a temporary scheduler (will be updated with payroll service)
 	payoutScheduler, err := scheduler.NewCronScheduler(nil, payoutSvc)
 	if err != nil {
 		log.Fatal().Err(err).Msg("Failed to create scheduler")
@@ -112,18 +123,26 @@ func main() {
 		payrollRepo,
 		employeeRepo,
 		cadreRepo,
+		businessRepo,
+		newTransferRepo,
 		txer,
 		payoutSvc,
 		notificationSvc,
 		userRepo,
 		payoutScheduler,
+		transferSvcNew,
 	)
 
-	// 3. Complete the cycle: Give the scheduler a reference to the PayrollService.
-	// payoutScheduler.SetPayrollProcessor(payrollSvc)
+	// 3. Update scheduler with the PayrollService to resolve circular dependency
+	// Cast to domain.PayrollService (the service implements both interfaces)
+	if domainPayrollSvc, ok := payrollSvc.(domain.PayrollService); ok {
+		payoutScheduler.SetPayrollService(domainPayrollSvc)
+	} else {
+		log.Fatal().Msg("PayrollService does not implement domain.PayrollService")
+	}
 
 	// --- Phase 5: API Router & Server Startup ---
-	router := api.NewRouter(cfg, authSvc, employeeSvc, cadreSvc, deductionRuleSvc, payrollSvc, webhookSvc, transferSvc, bulkTransferSvc)
+	router := api.NewRouter(cfg, authSvc, employeeSvc, cadreSvc, deductionRuleSvc, payrollSvc, webhookSvc, transferSvc, bulkTransferSvc, transferSvcNew)
 	log.Info().Msg("API router initialized")
 
 	server := &http.Server{

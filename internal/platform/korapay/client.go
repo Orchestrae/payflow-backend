@@ -85,9 +85,9 @@ func (c *Client) SendSingleDisbursement(request SingleDisbursementRequest) (*Sin
 }
 
 // SendBulkPayout makes a bulk disbursement API call.
-// Endpoint: POST /api/v1/transactions/disburse/bulk
+// Endpoint: POST /merchant/api/v1/transactions/disburse/bulk
 func (c *Client) SendBulkPayout(request BulkPayoutRequest) (*BulkPayoutResponse, error) {
-	bodyBytes, err := c.makeRequest("POST", "/api/v1/transactions/disburse/bulk", request)
+	bodyBytes, err := c.makeRequest("POST", "/merchant/api/v1/transactions/disburse/bulk", request)
 	if err != nil {
 		return nil, fmt.Errorf("korapay bulk payout request failed: %w", err)
 	}
@@ -95,6 +95,57 @@ func (c *Client) SendBulkPayout(request BulkPayoutRequest) (*BulkPayoutResponse,
 	var response BulkPayoutResponse
 	if err := json.Unmarshal(bodyBytes, &response); err != nil {
 		return nil, fmt.Errorf("failed to decode korapay bulk payout response: %w", err)
+	}
+
+	return &response, nil
+}
+
+// GetBulkPayoutStatus fetches the status of a bulk payout batch.
+// Endpoint: GET /merchant/api/v1/transactions/bulk/:batch_reference
+func (c *Client) GetBulkPayoutStatus(batchReference string) (*BulkPayoutResponse, error) {
+	endpoint := fmt.Sprintf("/merchant/api/v1/transactions/bulk/%s", batchReference)
+	bodyBytes, err := c.makeRequest("GET", endpoint, nil)
+	if err != nil {
+		return nil, fmt.Errorf("korapay get bulk payout status failed: %w", err)
+	}
+
+	var response BulkPayoutResponse
+	if err := json.Unmarshal(bodyBytes, &response); err != nil {
+		return nil, fmt.Errorf("failed to decode korapay bulk payout status response: %w", err)
+	}
+
+	return &response, nil
+}
+
+// GetBulkPayoutPayouts fetches all payouts in a bulk payout batch.
+// Endpoint: GET /merchant/api/v1/transactions/bulk/:batch_reference/payouts
+func (c *Client) GetBulkPayoutPayouts(batchReference string) (*BulkPayoutPayoutsResponse, error) {
+	endpoint := fmt.Sprintf("/merchant/api/v1/transactions/bulk/%s/payouts", batchReference)
+	bodyBytes, err := c.makeRequest("GET", endpoint, nil)
+	if err != nil {
+		return nil, fmt.Errorf("korapay get bulk payout payouts failed: %w", err)
+	}
+
+	var response BulkPayoutPayoutsResponse
+	if err := json.Unmarshal(bodyBytes, &response); err != nil {
+		return nil, fmt.Errorf("failed to decode korapay bulk payout payouts response: %w", err)
+	}
+
+	return &response, nil
+}
+
+// GetTransactionStatus fetches the status of a single transaction.
+// Endpoint: GET /merchant/api/v1/transactions/:reference
+func (c *Client) GetTransactionStatus(reference string) (*SingleDisbursementResponse, error) {
+	endpoint := fmt.Sprintf("/merchant/api/v1/transactions/%s", reference)
+	bodyBytes, err := c.makeRequest("GET", endpoint, nil)
+	if err != nil {
+		return nil, fmt.Errorf("korapay get transaction status failed: %w", err)
+	}
+
+	var response SingleDisbursementResponse
+	if err := json.Unmarshal(bodyBytes, &response); err != nil {
+		return nil, fmt.Errorf("failed to decode korapay transaction status response: %w", err)
 	}
 
 	return &response, nil

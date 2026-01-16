@@ -5,4 +5,5 @@ type Scheduler interface {
 	Start()
 	Stop()
 	SchedulePayout(run PayrollRun) error
+	SetPayrollService(payrollSvc PayrollService)
 }

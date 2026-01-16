@@ -3,28 +3,29 @@ package vfd
 
 import (
 	"context"
+	"crypto/sha512"
 	"fmt"
+	"log/slog"
 	"net/http"
+
 	"payflow/internal/domain"
 )
 
 // VFDService defines the high-level contract for interacting with VFD bank services.
-// This is the interface the rest of the PayFlow application will depend on.
 type VFDService interface {
-	// CreateNewCorporateAccount creates a brand new corporate bank account.
+	// Account Operations
 	CreateNewCorporateAccount(ctx context.Context, details NewAccountDetails) (*CorporateAccount, error)
-	// CreateDuplicateCorporateAccount creates a new account for an existing VFD client.
 	CreateDuplicateCorporateAccount(ctx context.Context, previousAccountNumber string) (*CorporateAccount, error)
-	// RetriggerWebhookNotification retriggers a webhook notification via VFD API
-	RetriggerWebhookNotification(ctx context.Context, req *domain.VFDRetriggerRequest) (*domain.VFDRetriggerResponse, error)
-	// AccountEnquiry gets account details for a given account number
+
+	// Transfer Operations (implements the standard provider pattern)
 	AccountEnquiry(ctx context.Context, accountNumber string) (*domain.AccountEnquiryResponse, error)
-	// BeneficiaryEnquiry gets beneficiary details for a transfer
 	BeneficiaryEnquiry(ctx context.Context, accountNo, bank, transferType string) (*domain.BeneficiaryEnquiryResponse, error)
-	// GetBankList gets the list of all Nigerian banks
 	GetBankList(ctx context.Context) (*domain.BankListResponse, error)
-	// InitiateTransfer initiates a transfer
 	InitiateTransfer(ctx context.Context, req *domain.TransferRequest) (*domain.TransferResponse, error)
+	GetTransactionStatus(ctx context.Context, reference, sessionID string) (*domain.TransactionStatusResponse, error)
+
+	// Webhook Operations
+	RetriggerWebhookNotification(ctx context.Context, req *domain.VFDRetriggerRequest) (*domain.VFDRetriggerResponse, error)
 }
 
 // vfdService is the concrete implementation of the VFDService interface.
@@ -37,47 +38,27 @@ func NewVFDService(client *Client) VFDService {
 	return &vfdService{client: client}
 }
 
-// CreateNewCorporateAccount implements the VFDService interface.
+// ============================================================================
+// Corporate Account Operations
+// ============================================================================
+
+// CreateNewCorporateAccount creates a new corporate bank account.
 func (s *vfdService) CreateNewCorporateAccount(ctx context.Context, details NewAccountDetails) (*CorporateAccount, error) {
-	fmt.Printf("=== VFD Corporate Account Creation ===\n")
-	fmt.Printf("RC Number: %s\n", details.RCNumber)
-	fmt.Printf("Company Name: %s\n", details.CompanyName)
-	fmt.Printf("Incorporation Date: %s\n", details.IncorporationDate.Format("02 January 2006"))
-	fmt.Printf("Director BVN: %s\n", details.DirectorBVN)
-	fmt.Printf("=====================================\n")
+	slog.Info("Creating VFD corporate account",
+		"rc_number", details.RCNumber,
+		"company_name", details.CompanyName,
+	)
 
 	req := CreateCorporateRequest{
 		RCNumber:          details.RCNumber,
 		CompanyName:       details.CompanyName,
 		BVN:               details.DirectorBVN,
-		IncorporationDate: details.IncorporationDate.Format("02 January 2006"), // Format date as required by VFD.
+		IncorporationDate: details.IncorporationDate.Format("02 January 2006"),
 	}
-	return s.createAccount(ctx, req)
-}
 
-// CreateDuplicateCorporateAccount implements the VFDService interface.
-func (s *vfdService) CreateDuplicateCorporateAccount(ctx context.Context, previousAccountNumber string) (*CorporateAccount, error) {
-	req := CreateCorporateRequest{
-		PreviousAccountNo: previousAccountNumber,
-	}
-	return s.createAccount(ctx, req)
-}
-
-// createAccount is an internal helper that calls the client and handles the response.
-func (s *vfdService) createAccount(ctx context.Context, req CreateCorporateRequest) (*CorporateAccount, error) {
-	token, err := s.client.getAccessToken(ctx)
+	var accountData CorporateAccountData
+	err := s.client.doAuthenticatedRequest(ctx, http.MethodPost, "/corporateclient/create", req, &accountData)
 	if err != nil {
-		return nil, fmt.Errorf("could not get vfd access token: %w", err)
-	}
-
-	headers := map[string]string{
-		"AccessToken": token,
-	}
-
-	var accountData corporateAccountData
-	err = s.client.do(ctx, http.MethodPost, "/corporateclient/create", headers, req, &accountData)
-	if err != nil {
-		// The `do` method has already translated VFD errors, so we just pass them up.
 		return nil, err
 	}
 
@@ -87,109 +68,177 @@ func (s *vfdService) createAccount(ctx context.Context, req CreateCorporateReque
 	}, nil
 }
 
-// RetriggerWebhookNotification implements the VFDService interface.
-func (s *vfdService) RetriggerWebhookNotification(ctx context.Context, req *domain.VFDRetriggerRequest) (*domain.VFDRetriggerResponse, error) {
-	token, err := s.client.getAccessToken(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("could not get vfd access token: %w", err)
+// CreateDuplicateCorporateAccount creates a new account for an existing VFD client.
+func (s *vfdService) CreateDuplicateCorporateAccount(ctx context.Context, previousAccountNumber string) (*CorporateAccount, error) {
+	req := CreateCorporateRequest{
+		PreviousAccountNo: previousAccountNumber,
 	}
 
-	headers := map[string]string{
-		"AccessToken": token,
-	}
-
-	var response domain.VFDRetriggerResponse
-	err = s.client.do(ctx, http.MethodPost, "/transactions/repush", headers, req, &response)
+	var accountData CorporateAccountData
+	err := s.client.doAuthenticatedRequest(ctx, http.MethodPost, "/corporateclient/create", req, &accountData)
 	if err != nil {
 		return nil, err
 	}
 
-	return &response, nil
+	return &CorporateAccount{
+		AccountNumber: accountData.AccountNo,
+		AccountName:   accountData.AccountName,
+	}, nil
 }
 
-// AccountEnquiry implements the VFDService interface.
+// ============================================================================
+// Transfer Operations
+// ============================================================================
+
+// AccountEnquiry gets account details for a given account number.
+// If accountNumber is empty, returns the pool account details.
 func (s *vfdService) AccountEnquiry(ctx context.Context, accountNumber string) (*domain.AccountEnquiryResponse, error) {
-	token, err := s.client.getAccessToken(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("could not get vfd access token: %w", err)
-	}
-
-	headers := map[string]string{
-		"AccessToken": token,
-	}
-
-	var response domain.AccountEnquiryResponse
 	path := "/account/enquiry"
 	if accountNumber != "" {
 		path += "?accountNumber=" + accountNumber
 	}
 
-	err = s.client.do(ctx, http.MethodGet, path, headers, nil, &response)
+	var data domain.AccountEnquiryData
+	err := s.client.doAuthenticatedRequest(ctx, http.MethodGet, path, nil, &data)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("account enquiry failed: %w", err)
 	}
 
-	return &response, nil
+	return &domain.AccountEnquiryResponse{
+		Status:  "00",
+		Message: "Account Details",
+		Data:    &data,
+	}, nil
 }
 
-// BeneficiaryEnquiry implements the VFDService interface.
+// BeneficiaryEnquiry gets the transfer recipient's account details.
 func (s *vfdService) BeneficiaryEnquiry(ctx context.Context, accountNo, bank, transferType string) (*domain.BeneficiaryEnquiryResponse, error) {
-	token, err := s.client.getAccessToken(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("could not get vfd access token: %w", err)
-	}
-
-	headers := map[string]string{
-		"AccessToken": token,
-	}
-
-	var response domain.BeneficiaryEnquiryResponse
 	path := fmt.Sprintf("/transfer/recipient?accountNo=%s&bank=%s&transfer_type=%s", accountNo, bank, transferType)
 
-	err = s.client.do(ctx, http.MethodGet, path, headers, nil, &response)
+	var data domain.BeneficiaryEnquiryData
+	err := s.client.doAuthenticatedRequest(ctx, http.MethodGet, path, nil, &data)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("beneficiary enquiry failed: %w", err)
 	}
 
-	return &response, nil
+	return &domain.BeneficiaryEnquiryResponse{
+		Status:  "00",
+		Message: "Account Found",
+		Data:    &data,
+	}, nil
 }
 
-// GetBankList implements the VFDService interface.
+// GetBankList gets the list of all Nigerian banks and bank codes.
 func (s *vfdService) GetBankList(ctx context.Context) (*domain.BankListResponse, error) {
-	token, err := s.client.getAccessToken(ctx)
+	var data []domain.BankData
+	err := s.client.doAuthenticatedRequest(ctx, http.MethodGet, "/bank", nil, &data)
 	if err != nil {
-		return nil, fmt.Errorf("could not get vfd access token: %w", err)
+		return nil, fmt.Errorf("get bank list failed: %w", err)
 	}
 
-	headers := map[string]string{
-		"AccessToken": token,
+	return &domain.BankListResponse{
+		Status:  "00",
+		Message: "Bank List",
+		Data:    data,
+	}, nil
+}
+
+// InitiateTransfer initiates a funds transfer.
+// Note: The caller should have already:
+// 1. Called AccountEnquiry to get sender details
+// 2. Called BeneficiaryEnquiry to get recipient details
+// 3. Generated the signature
+func (s *vfdService) InitiateTransfer(ctx context.Context, req *domain.TransferRequest) (*domain.TransferResponse, error) {
+	slog.Info("Initiating VFD transfer",
+		"from_account", req.FromAccount,
+		"to_account", req.ToAccount,
+		"amount", req.Amount,
+		"reference", req.Reference,
+		"transfer_type", req.TransferType,
+	)
+
+	// Build VFD transfer request
+	vfdReq := TransferRequest{
+		FromAccount:           req.FromAccount,
+		UniqueSenderAccountId: req.UniqueSenderAccountId,
+		FromClientId:          req.FromClientId,
+		FromClient:            req.FromClient,
+		FromSavingsId:         req.FromSavingsId,
+		FromBvn:               req.FromBvn,
+		ToClientId:            req.ToClientId,
+		ToClient:              req.ToClient,
+		ToSavingsId:           req.ToSavingsId,
+		ToSession:             req.ToSession,
+		ToBvn:                 req.ToBvn,
+		ToAccount:             req.ToAccount,
+		ToBank:                req.ToBank,
+		Signature:             req.Signature,
+		Amount:                req.Amount,
+		Remark:                req.Remark,
+		TransferType:          req.TransferType,
+		Reference:             req.Reference,
 	}
 
-	var response domain.BankListResponse
-	err = s.client.do(ctx, http.MethodGet, "/bank", headers, nil, &response)
+	var data domain.TransferData
+	err := s.client.doAuthenticatedRequest(ctx, http.MethodPost, "/transfer", vfdReq, &data)
+	if err != nil {
+		return nil, fmt.Errorf("VFD transfer failed: %w", err)
+	}
+
+	return &domain.TransferResponse{
+		Status:  "00",
+		Message: "Successful Transfer",
+		Data:    &data,
+	}, nil
+}
+
+// GetTransactionStatus queries the status of a transaction.
+// Provide either reference OR sessionId (not both).
+func (s *vfdService) GetTransactionStatus(ctx context.Context, reference, sessionID string) (*domain.TransactionStatusResponse, error) {
+	var path string
+	if reference != "" {
+		path = "/transactions?reference=" + reference
+	} else if sessionID != "" {
+		path = "/transactions?sessionId=" + sessionID
+	} else {
+		return nil, fmt.Errorf("either reference or sessionId is required")
+	}
+
+	var data domain.TransactionStatusData
+	err := s.client.doAuthenticatedRequest(ctx, http.MethodGet, path, nil, &data)
+	if err != nil {
+		return nil, fmt.Errorf("transaction status query failed: %w", err)
+	}
+
+	return &domain.TransactionStatusResponse{
+		Status:  "00",
+		Message: "Successful Transaction Retrieval",
+		Data:    &data,
+	}, nil
+}
+
+// ============================================================================
+// Webhook Operations
+// ============================================================================
+
+// RetriggerWebhookNotification retriggers a webhook notification.
+func (s *vfdService) RetriggerWebhookNotification(ctx context.Context, req *domain.VFDRetriggerRequest) (*domain.VFDRetriggerResponse, error) {
+	var response domain.VFDRetriggerResponse
+	err := s.client.doAuthenticatedRequest(ctx, http.MethodPost, "/transactions/repush", req, &response)
 	if err != nil {
 		return nil, err
 	}
-
 	return &response, nil
 }
 
-// InitiateTransfer implements the VFDService interface.
-func (s *vfdService) InitiateTransfer(ctx context.Context, req *domain.TransferRequest) (*domain.TransferResponse, error) {
-	token, err := s.client.getAccessToken(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("could not get vfd access token: %w", err)
-	}
+// ============================================================================
+// Utility Functions
+// ============================================================================
 
-	headers := map[string]string{
-		"AccessToken": token,
-	}
-
-	var response domain.TransferResponse
-	err = s.client.do(ctx, http.MethodPost, "/transfer", headers, req, &response)
-	if err != nil {
-		return nil, err
-	}
-
-	return &response, nil
+// GenerateTransferSignature generates the SHA512 signature for VFD transfers.
+// signature = SHA512(fromAccount + toAccount)
+func GenerateTransferSignature(fromAccount, toAccount string) string {
+	data := fromAccount + toAccount
+	hash := sha512.Sum512([]byte(data))
+	return fmt.Sprintf("%x", hash)
 }

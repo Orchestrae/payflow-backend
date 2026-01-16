@@ -89,25 +89,39 @@ type VFDTransferService interface {
 }
 
 // BulkTransferService defines the business logic for bulk transfer operations.
+// DEPRECATED: Use TransferService instead for provider-agnostic transfers.
 type BulkTransferService interface {
 	// ExecuteSingleTransfer executes a complete transfer flow for a single transfer
-	ExecuteSingleTransfer(ctx context.Context, businessID uint, req *domain.BulkTransferRequest) (*domain.BulkTransferResponse, error)
+	// DEPRECATED: Use TransferService.ExecuteTransfer instead
+	ExecuteSingleTransfer(ctx context.Context, businessID uint, req *domain.LegacyBulkTransferRequest) (*domain.LegacyBulkTransferResponse, error)
 
 	// ExecuteBatchTransfer executes multiple transfers in a batch
-	ExecuteBatchTransfer(ctx context.Context, businessID uint, req *domain.BulkTransferBatchRequest) (*domain.BulkTransferBatchResponse, error)
+	// DEPRECATED: Use TransferService.ExecuteBatchTransfer instead
+	ExecuteBatchTransfer(ctx context.Context, businessID uint, req *domain.LegacyBulkTransferBatchRequest) (*domain.LegacyBulkTransferBatchResponse, error)
 
 	// GetTransferFlowData prepares all the data needed for a transfer without executing it
-	GetTransferFlowData(ctx context.Context, businessID uint, req *domain.BulkTransferRequest) (*domain.TransferFlowData, error)
+	// DEPRECATED: Not needed with provider-agnostic design
+	GetTransferFlowData(ctx context.Context, businessID uint, req *domain.LegacyBulkTransferRequest) (*domain.TransferFlowData, error)
+}
+
+// EmployeeAdjustment represents a detailed adjustment item for an employee
+type EmployeeAdjustment struct {
+	ItemName      string // Name of the adjustment item
+	Amount        int64  // Positive for earnings, negative for deductions
+	Description   string // Optional description for historical tracking
+	ComponentType string // "earnings" or "deduction" (auto-inferred if not provided)
 }
 
 // PayrollService defines the core business logic for payroll operations.
 type PayrollService interface {
 	// CalculatePayrollRun is the core engine. It fetches all necessary data and performs calculations.
 	// It's a "dry run" and doesn't save anything to the DB.
-	CalculatePayrollRun(ctx context.Context, businessID uint, adjustments map[uint]int64) (*domain.PayrollRun, error)
+	// Adjustments map employee IDs to arrays of adjustment items for detailed historical tracking
+	CalculatePayrollRun(ctx context.Context, businessID uint, period time.Time, adjustments map[uint][]EmployeeAdjustment) (*domain.PayrollRun, error)
 
 	// CreateAndStorePayrollRun orchestrates the calculation and saves the result as a 'draft'.
-	CreateAndStorePayrollRun(ctx context.Context, businessID uint, adjustments map[uint]int64) (*domain.PayrollRun, error)
+	// Adjustments map employee IDs to arrays of adjustment items for detailed historical tracking
+	CreateAndStorePayrollRun(ctx context.Context, businessID uint, period time.Time, adjustments map[uint][]EmployeeAdjustment) (*domain.PayrollRun, error)
 
 	// SubmitForApproval moves a payroll run to the next state and notifies the approver.
 	SubmitForApproval(ctx context.Context, runID, userID uint) (*domain.PayrollRun, error)
@@ -119,6 +133,10 @@ type PayrollService interface {
 	RejectPayrollRun(ctx context.Context, runID, rejecterID uint, reason string) (*domain.PayrollRun, error)
 
 	ProcessApprovedPayroll(ctx context.Context, runID uint) error
+
+	// ProcessPayrollRunInstantly processes a payroll run immediately, bypassing the scheduler.
+	// Allows businesses to pay employees instantly. Executes bulk transfers and verifies them in database.
+	ProcessPayrollRunInstantly(ctx context.Context, runID, businessID uint) (*domain.PayrollRun, error)
 
 	// ListByBusinessID retrieves all payroll runs for a business
 	ListByBusinessID(ctx context.Context, businessID uint) ([]*domain.PayrollRun, error)
