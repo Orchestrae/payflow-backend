@@ -24,6 +24,8 @@ import (
 	"payflow/internal/service"
 	"payflow/internal/service/provider"
 	vfd2 "payflow/internal/service/vfd"
+
+	"gorm.io/gorm"
 )
 
 func main() {
@@ -46,11 +48,23 @@ func main() {
 	log.Info().Msg("PayFlow server starting up...")
 
 	// --- Phase 2: Platform & Repository Initialization ---
-	db, err := database.InitializeDatabase(cfg.DatabaseURL)
-	if err != nil {
-		log.Fatal().Err(err).Msg("Failed to initialize database")
+	// Use auto-migration only if enabled (local dev). Production should use traditional migrations only.
+	var db *gorm.DB
+	if cfg.EnableAutoMigration {
+		log.Warn().Msg("⚠️  AUTO-MIGRATION ENABLED - This should only be used in development!")
+		db, err = database.InitializeDatabaseWithAutoMigration(cfg.DatabaseURL)
+		if err != nil {
+			log.Fatal().Err(err).Msg("Failed to initialize database with auto-migration")
+		}
+		log.Info().Msg("Database initialized with auto-migration (development mode)")
+	} else {
+		db, err = database.InitializeDatabase(cfg.DatabaseURL)
+		if err != nil {
+			log.Fatal().Err(err).Msg("Failed to initialize database")
+		}
+		log.Info().Msg("Database initialized (traditional migrations only - production mode)")
+		log.Info().Msg("ℹ️  Run migrations manually: make migrate-up (or use golang-migrate CLI)")
 	}
-	log.Info().Msg("Database initialized and automigration completed")
 
 	// Repositories
 	txer := postgres.NewTransactioner(db)
@@ -62,6 +76,8 @@ func main() {
 	deductionRuleRepo := postgres.NewDeductionRuleRepository(db)
 	webhookRepo := postgres.NewVFDWebhookNotificationRepository(db)
 	transferRepo := postgres.NewVFDTransferRepository(db)
+	walletRepo := postgres.NewWalletRepository(db)
+	walletTxRepo := postgres.NewWalletTransactionRepository(db)
 
 	// --- Phase 3: External Service & Core Service Initialization ---
 	// External Platform Clients
@@ -99,6 +115,14 @@ func main() {
 	}
 	log.Info().Msgf("Transfer provider manager initialized with default provider: %s", cfg.TransferDefaultProvider)
 
+	// Initialize virtual account provider (KoraPay)
+	korapayVirtualAccountProvider := korapay.NewVirtualAccountProvider(koraClient)
+	log.Info().Msg("KoraPay virtual account provider initialized")
+
+	// Initialize account holder provider (KoraPay)
+	korapayAccountHolderProvider := korapay.NewAccountHolderProvider(koraClient)
+	log.Info().Msg("KoraPay account holder provider initialized")
+
 	// New transfer repository and service (provider-agnostic)
 	newTransferRepo := postgres.NewTransferRepository(db)
 	transferConfig := service.TransferConfig{
@@ -107,6 +131,22 @@ func main() {
 	}
 	transferSvcNew := service.NewTransferService(providerManager, newTransferRepo, userRepo, txer, transferConfig)
 	log.Info().Msgf("Transfer service initialized with limits: min=%d, max=%d", cfg.TransferMinAmount, cfg.TransferMaxAmount)
+
+	// Initialize wallet service with virtual account provider
+	walletSvc := service.NewWalletService(walletRepo, walletTxRepo, korapayVirtualAccountProvider)
+	log.Info().Msg("Wallet service initialized")
+
+	// Initialize account holder service with account holder provider
+	accountHolderSvc := service.NewAccountHolderService(korapayAccountHolderProvider)
+	log.Info().Msg("Account holder service initialized")
+
+	// Wire wallet service into transfer service for balance checking
+	if transferSvcWithWallet, ok := transferSvcNew.(interface{ SetWalletService(service.WalletService) }); ok {
+		transferSvcWithWallet.SetWalletService(walletSvc)
+		log.Info().Msg("Wallet service wired into transfer service for balance checking")
+	} else {
+		log.Warn().Msg("Transfer service does not support SetWalletService - balance checking disabled")
+	}
 
 	// Keep legacy bulk transfer service for backward compatibility (deprecated)
 	bulkTransferSvc := service.NewBulkTransferService(providerManager, transferRepo, txer)
@@ -142,7 +182,7 @@ func main() {
 	}
 
 	// --- Phase 5: API Router & Server Startup ---
-	router := api.NewRouter(cfg, authSvc, employeeSvc, cadreSvc, deductionRuleSvc, payrollSvc, webhookSvc, transferSvc, bulkTransferSvc, transferSvcNew)
+	router := api.NewRouter(cfg, authSvc, employeeSvc, cadreSvc, deductionRuleSvc, payrollSvc, webhookSvc, transferSvc, bulkTransferSvc, transferSvcNew, walletSvc, accountHolderSvc, koraClient)
 	log.Info().Msg("API router initialized")
 
 	server := &http.Server{

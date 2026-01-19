@@ -108,6 +108,25 @@ type TransferRepository interface {
 	WithTx(tx *gorm.DB) TransferRepository
 }
 
+// WalletRepository defines the interface for wallet data operations
+type WalletRepository interface {
+	Create(ctx context.Context, wallet *domain.BusinessWallet) error
+	FindByBusinessID(ctx context.Context, businessID uint) (*domain.BusinessWallet, error)
+	FindByAccountReference(ctx context.Context, accountReference string) (*domain.BusinessWallet, error)
+	Update(ctx context.Context, wallet *domain.BusinessWallet) error
+	WithTx(tx *gorm.DB) WalletRepository
+}
+
+// WalletTransactionRepository defines the interface for wallet transaction data operations
+type WalletTransactionRepository interface {
+	Create(ctx context.Context, tx *domain.WalletTransaction) error
+	FindByID(ctx context.Context, id uint) (*domain.WalletTransaction, error)
+	FindByBusinessID(ctx context.Context, businessID uint, page, limit int) ([]*domain.WalletTransaction, int, error)
+	FindByReference(ctx context.Context, reference string) (*domain.WalletTransaction, error)
+	Update(ctx context.Context, tx *domain.WalletTransaction) error
+	WithTx(tx *gorm.DB) WalletTransactionRepository
+}
+
 // Transactioner defines the interface for database transactions
 type Transactioner interface {
 	Begin(ctx context.Context) interface{}

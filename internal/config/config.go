@@ -34,6 +34,9 @@ type Config struct {
 	// Transfer Limits (in minor currency units, e.g., kobo for NGN)
 	TransferMinAmount int64 `mapstructure:"TRANSFER_MIN_AMOUNT"`
 	TransferMaxAmount int64 `mapstructure:"TRANSFER_MAX_AMOUNT"`
+
+	// Database Migration Configuration
+	EnableAutoMigration bool `mapstructure:"ENABLE_AUTO_MIGRATION"` // Set to false in production - use traditional migrations only
 }
 
 // Load loads configuration from the environment.
@@ -53,6 +56,9 @@ func Load() (*Config, error) {
 	// Transfer limits - Korapay requires minimum NGN 1000 (100000 kobo) and max NGN 10,000,000
 	viper.SetDefault("TRANSFER_MIN_AMOUNT", 1000)    // NGN 1000 minimum
 	viper.SetDefault("TRANSFER_MAX_AMOUNT", 10000000) // NGN 10,000,000 maximum
+	// Auto-migration: Disabled by default for safety. Enable only for local development.
+	// In production, use traditional migrations only (golang-migrate).
+	viper.SetDefault("ENABLE_AUTO_MIGRATION", false)
 	// Tell viper to look for an .env file
 	viper.AddConfigPath(".")
 	viper.SetConfigName(".env")
