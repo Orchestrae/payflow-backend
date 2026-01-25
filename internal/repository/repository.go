@@ -45,6 +45,8 @@ type CadreRepository interface {
 	Create(ctx context.Context, cadre *domain.Cadre) error
 	FindByID(ctx context.Context, id uint, businessID uint) (*domain.Cadre, error)
 	FindByBusinessID(ctx context.Context, businessID uint) ([]*domain.Cadre, error)
+	FindCadreByBusinessID(ctx context.Context, businessID uint) (*domain.Cadre, error)
+	IsCadreNameUnique(ctx context.Context, cadre domain.Cadre) (bool, error)
 	Update(ctx context.Context, cadre *domain.Cadre) error
 	Delete(ctx context.Context, id uint, businessID uint) error
 	WithTx(tx Transactioner) CadreRepository

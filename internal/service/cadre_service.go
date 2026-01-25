@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"payflow/internal/domain"
 	"payflow/internal/repository"
 )
@@ -30,9 +31,35 @@ func NewCadreService(cadreRepo repository.CadreRepository) CadreService {
 
 // CreateCadre validates and creates a new cadre.
 func (s *cadreService) CreateCadre(ctx context.Context, cadre *domain.Cadre) (*domain.Cadre, error) {
+	// Validate cadre name is unique for this business
+	isUnique, err := s.cadreRepo.IsCadreNameUnique(ctx, *cadre)
+	if err != nil {
+		slog.Error("Error checking cadre name uniqueness", "error", err)
+		return nil, fmt.Errorf("failed to check cadre name uniqueness: %w", err)
+	}
+	if !isUnique {
+		slog.Error("Cadre name already exists for this business", "name", cadre.Name, "business_id", cadre.BusinessID)
+		// Return domain.ErrConflict so it's properly handled by RespondWithError
+		return nil, domain.ErrConflict
+	}
+	//todo for a cadre name that is repeated, we can seamply chick if the earning component name does not already exist
+	// in the existing cadre, if not, we can allow the creation of the cadre
+	//else we can have an independaent update cadre feature
+	// Validate earning component names are unique within this cadre
+	if err := validateEarningComponentNamesUnique(cadre.EarningComponents); err != nil {
+		slog.Error("Earning component names are not unique", "error", err)
+		// Return domain.ErrValidationFailed so it's properly handled by RespondWithError
+		return nil, domain.ErrValidationFailed
+	}
+
+	// TODO: Apply deduction rules from cadre.DeductionRules if needed
+
+	// Create the cadre
 	if err := s.cadreRepo.Create(ctx, cadre); err != nil {
+		slog.Error("Failed to create cadre", "error", err, "business_id", cadre.BusinessID, "name", cadre.Name)
 		return nil, fmt.Errorf("failed to create cadre: %w", err)
 	}
+
 	return cadre, nil
 }
 
@@ -57,4 +84,20 @@ func (s *cadreService) UpdateCadre(ctx context.Context, cadre *domain.Cadre) (*d
 // DeleteCadre deletes a cadre, ensuring it belongs to the specified business.
 func (s *cadreService) DeleteCadre(ctx context.Context, cadreID, businessID uint) error {
 	return s.cadreRepo.Delete(ctx, cadreID, businessID)
+}
+
+func validateEarningComponentNamesUnique(
+	components []domain.EarningComponent,
+) error {
+
+	seen := make(map[string]struct{})
+
+	for _, c := range components {
+		if _, exists := seen[c.Name]; exists {
+			return fmt.Errorf("earning component name '%s' is duplicated", c.Name)
+		}
+		seen[c.Name] = struct{}{}
+	}
+
+	return nil
 }

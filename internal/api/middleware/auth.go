@@ -42,8 +42,8 @@ func AuthMiddleware(jwtSecret string) func(http.Handler) http.Handler {
 			}
 
 			// Debug logging
-			log.Printf("Validating token: %s", tokenString[:20]+"...")
-			log.Printf("Using JWT secret: %s", jwtSecret[:20]+"...")
+			//log.Printf("Validating token: %s", tokenString[:20]+"...")
+			//log.Printf("Using JWT secret: %s", jwtSecret[:20]+"...")
 
 			// Use the JWT util to validate
 			validatedClaims, err := utils.ValidateToken(tokenString, jwtSecret)
