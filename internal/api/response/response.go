@@ -3,6 +3,7 @@ package response
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
 	"payflow/internal/domain"
 )
@@ -30,23 +31,22 @@ func RespondWithError(w http.ResponseWriter, err error) {
 	status := http.StatusInternalServerError
 	resp := ErrorResponse{Error: "An unexpected error occurred"}
 
-	switch err {
-	case domain.ErrNotFound:
+	switch {
+	case errors.Is(err, domain.ErrNotFound):
 		status = http.StatusNotFound
 		resp.Error = err.Error()
-	case domain.ErrUnauthorized:
+	case errors.Is(err, domain.ErrUnauthorized):
 		status = http.StatusUnauthorized
 		resp.Error = err.Error()
-	case domain.ErrForbidden:
+	case errors.Is(err, domain.ErrForbidden):
 		status = http.StatusForbidden
 		resp.Error = err.Error()
-	case domain.ErrConflict:
+	case errors.Is(err, domain.ErrConflict):
 		status = http.StatusConflict
 		resp.Error = err.Error()
-	case domain.ErrValidationFailed:
+	case errors.Is(err, domain.ErrValidationFailed):
 		status = http.StatusBadRequest
 		resp.Error = err.Error()
-	// Add more specific domain error mappings here
 	default:
 		// Log the full internal error for debugging, but don't expose it to the client.
 		// log.Error().Err(err).Msg("Responding with internal server error")

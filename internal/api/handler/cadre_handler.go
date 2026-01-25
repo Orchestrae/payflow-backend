@@ -35,11 +35,14 @@ func (h *CadreHandler) CreateCadre(w http.ResponseWriter, r *http.Request) {
 		response.RespondWithError(w, domain.ErrInternalServer) // Should not happen
 		return
 	}
-
+	// Sanitize earning component names
+	for i, ec := range req.EarningComponents {
+		req.EarningComponents[i].Name = utils.SanitizeString(ec.Name)
+	}
 	// Create the cadre
 	cadre := &domain.Cadre{
 		BusinessID:        claims.BusinessID,
-		Name:              req.Name,
+		Name:              utils.SanitizeString(req.Name),
 		EarningComponents: req.EarningComponents,
 		//DeductionRules:    req.DeductionRuleIDs,
 	}
@@ -55,10 +58,13 @@ func (h *CadreHandler) CreateCadre(w http.ResponseWriter, r *http.Request) {
 
 // ListCadres handles GET /cadres
 func (h *CadreHandler) ListCadres(w http.ResponseWriter, r *http.Request) {
-	claims := r.Context().Value(middleware.UserClaimsKey).(*utils.Claims)
-	businessID, _ := strconv.ParseUint(claims.BusinessID, 10, 32)
+	claims, ok := middleware.GetClaimsFromContext(r.Context())
+	if !ok {
+		response.RespondWithError(w, domain.ErrInternalServer)
+		return
+	}
 
-	cadres, err := h.cadreService.ListByBusinessID(r.Context(), uint(businessID))
+	cadres, err := h.cadreService.ListByBusinessID(r.Context(), claims.BusinessID)
 	if err != nil {
 		response.RespondWithError(w, err)
 		return
@@ -72,10 +78,13 @@ func (h *CadreHandler) GetCadreByID(w http.ResponseWriter, r *http.Request) {
 	cadreIDStr := chi.URLParam(r, "cadreID")
 	cadreID, _ := strconv.ParseUint(cadreIDStr, 10, 32)
 
-	claims := r.Context().Value(middleware.UserClaimsKey).(*utils.Claims)
-	businessID, _ := strconv.ParseUint(claims.BusinessID, 10, 32)
+	claims, ok := middleware.GetClaimsFromContext(r.Context())
+	if !ok {
+		response.RespondWithError(w, domain.ErrInternalServer)
+		return
+	}
 
-	cadre, err := h.cadreService.GetByID(r.Context(), uint(cadreID), uint(businessID))
+	cadre, err := h.cadreService.GetByID(r.Context(), uint(cadreID), claims.BusinessID)
 	if err != nil {
 		response.RespondWithError(w, err) // Service layer should return domain.ErrNotFound or domain.ErrForbidden
 		return
@@ -95,12 +104,15 @@ func (h *CadreHandler) UpdateCadre(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	claims := r.Context().Value(middleware.UserClaimsKey).(*utils.Claims)
-	businessID, _ := strconv.ParseUint(claims.BusinessID, 10, 32)
+	claims, ok := middleware.GetClaimsFromContext(r.Context())
+	if !ok {
+		response.RespondWithError(w, domain.ErrInternalServer)
+		return
+	}
 
 	// Update the cadre
 	cadre := &domain.Cadre{
-		BusinessID: uint(businessID),
+		BusinessID: claims.BusinessID,
 		Name:       req.Name,
 	}
 
@@ -118,11 +130,14 @@ func (h *CadreHandler) DeleteCadre(w http.ResponseWriter, r *http.Request) {
 	cadreIDStr := chi.URLParam(r, "cadreID")
 	cadreID, _ := strconv.ParseUint(cadreIDStr, 10, 32)
 
-	claims := r.Context().Value(middleware.UserClaimsKey).(*utils.Claims)
-	businessID, _ := strconv.ParseUint(claims.BusinessID, 10, 32)
+	claims, ok := middleware.GetClaimsFromContext(r.Context())
+	if !ok {
+		response.RespondWithError(w, domain.ErrInternalServer)
+		return
+	}
 
 	// Delete the cadre
-	if err := h.cadreService.DeleteCadre(r.Context(), uint(cadreID), uint(businessID)); err != nil {
+	if err := h.cadreService.DeleteCadre(r.Context(), uint(cadreID), claims.BusinessID); err != nil {
 		response.RespondWithError(w, err)
 		return
 	}

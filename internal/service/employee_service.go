@@ -4,6 +4,7 @@ package service
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"payflow/internal/domain"
 	"payflow/internal/repository"
 
@@ -41,8 +42,9 @@ func (s *employeeService) CreateEmployee(ctx context.Context, emp *domain.Employ
 	if err != nil {
 		if err == domain.ErrNotFound {
 			log.Ctx(ctx).Warn().Uint("cadreID", emp.CadreID).Msg("Attempt to create employee with non-existent or forbidden cadre")
-			return nil, fmt.Errorf("%w: cadre with ID %d not found", domain.ErrValidationFailed, emp.CadreID)
+			return nil, fmt.Errorf("%w: cadre with ID %d not found for business", domain.ErrValidationFailed, emp.CadreID)
 		}
+		slog.Error("Error retrieving cadre for employee creation", "error", err, "cadreID", emp.CadreID)
 		return nil, err // Internal error
 	}
 
