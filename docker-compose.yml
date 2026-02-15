@@ -1,7 +1,5 @@
 # docker-compose.yml
 
-version: '3.8'
-
 services:
   db:
     image: postgres:15-alpine
@@ -27,6 +25,17 @@ services:
       - "1025:1025" # SMTP server
       - "8025:8025" # Web UI
 
+  migrate:
+    image: migrate/migrate
+    container_name: payflow_migrate
+    volumes:
+      - ./migrations:/migrations
+    command: ["-path", "/migrations", "-database", "postgres://payflow_user:payflow_secret@db:5432/payflow_db?sslmode=disable", "up"]
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: "no"
+
   # This service is for running the app locally for development
   # It mounts the code, so you get hot-reloading with a tool like air
   app:
@@ -39,15 +48,15 @@ services:
     volumes:
       - .:/app
     depends_on:
-      db:
-        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
     environment:
       - DB_URL=postgres://payflow_user:payflow_secret@db:5432/payflow_db?sslmode=disable
       - SERVER_PORT=8080
       - LOG_LEVEL=debug
       - LOG_PRETTY=true
       - JWT_SECRET=a-very-secret-and-strong-key-that-is-at-least-32-chars-long
-      - JWT_EXPIRATION_HOURS=72h
+      - JWT_EXPIRATION_HOURS=72
       - KORAPAY_API_KEY=
       - KORAPAY_PUBLIC_KEY=
       - KORAPAY_BASE_URL=https://api.korapay.com/v1

@@ -1,0 +1,34 @@
+# Git
+.git
+.gitignore
+
+# IDE and editor
+.idea
+.vscode
+*.swp
+*.swo
+
+# Build artifacts
+bin/
+tmp/
+*.exe
+
+# Test and coverage
+*_test.go
+coverage.out
+*.test
+
+# Documentation and misc
+*.md
+!README.md
+
+# Environment files (secrets)
+.env
+.env.*
+!.env.example
+
+# Air / hot-reload logs
+air_errors.log
+
+# Misc
+.DS_Store
