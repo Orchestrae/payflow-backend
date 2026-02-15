@@ -82,9 +82,13 @@ func Load() (*Config, error) {
 	// Viper doesn't handle time.Duration from env well, so we do it manually.
 	config.JWTExpirationDuration = time.Duration(config.JWTExpiration) * time.Hour
 
-	// Ensure DB_URL is read from env (Docker, etc.) - viper can miss it in some cases
+	// Ensure database URL is read from env - viper can miss it in some cases
+	// Support both DB_URL (our app) and DATABASE_URL (Railway, Heroku, Render, etc.)
 	if config.DatabaseURL == "" {
 		config.DatabaseURL = os.Getenv("DB_URL")
+	}
+	if config.DatabaseURL == "" {
+		config.DatabaseURL = os.Getenv("DATABASE_URL")
 	}
 
 	return &config, nil
