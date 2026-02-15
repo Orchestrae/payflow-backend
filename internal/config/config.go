@@ -90,5 +90,10 @@ func Load() (*Config, error) {
 		}
 	}
 
+	// Railway, Heroku, Render inject PORT at runtime - use it when set
+	if port := os.Getenv("PORT"); port != "" {
+		config.ServerPort = port
+	}
+
 	return &config, nil
 }

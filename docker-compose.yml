@@ -36,12 +36,11 @@ services:
         condition: service_healthy
     restart: "no"
 
-  # This service is for running the app locally for development
-  # It mounts the code, so you get hot-reloading with a tool like air
+  # This service is for running the app locally for development (hot-reload with air)
   app:
     build:
       context: .
-      dockerfile: Dockerfile
+      dockerfile: Dockerfile.dev
     container_name: payflow_app
     ports:
       - "8080:8080"

@@ -3,7 +3,8 @@ root = "."
 tmp_dir = "tmp"
 
 [build]
-cmd = "go build -o ./tmp/main ./cmd/server"
+# Reduce memory during compile (helps on Railway/low-memory containers)
+cmd = "GOGC=50 GOMAXPROCS=2 go build -ldflags='-s -w' -o ./tmp/main ./cmd/server"
 bin = "./tmp/main"
 full_bin = "APP_ENV=dev ./tmp/main"
 include_ext = ["go", "tpl", "tmpl", "html"]
