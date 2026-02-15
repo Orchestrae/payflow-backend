@@ -18,7 +18,7 @@ import (
 // InitializeDatabase handles the complete database setup process
 func InitializeDatabase(dsn string) (*gorm.DB, error) {
 	if dsn == "" {
-		return nil, fmt.Errorf("database URL not set: provide DB_URL or DATABASE_URL environment variable")
+		return nil, fmt.Errorf("database URL not set: provide DB_URL, DATABASE_URL, or link Postgres addon in Railway")
 	}
 
 	// Try direct connection first (works for Docker, Railway, and local dev)

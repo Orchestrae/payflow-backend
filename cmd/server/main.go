@@ -36,7 +36,9 @@ func main() {
 		log.Fatal().Err(err).Msg("Failed to load configuration")
 	}
 
-	log.Info().Msgf("JWT Secret: %s", cfg.JWTSecret)
+	if cfg.JWTSecret == "temp-insecure-default-change-in-production" {
+		log.Warn().Msg("⚠️  JWT_SECRET not set - using temporary default. Set JWT_SECRET in Railway for production!")
+	}
 
 	if cfg.LogPretty {
 		log.Logger = log.Output(zerolog.ConsoleWriter{Out: os.Stderr, TimeFormat: time.RFC3339})
@@ -47,11 +49,18 @@ func main() {
 	}
 	log.Info().Msg("PayFlow server starting up...")
 
+	// Log database config status (not the URL) for deployment debugging
+	if cfg.DatabaseURL == "" {
+		log.Warn().Msg("DATABASE_URL/DB_URL not set - ensure Postgres is linked in Railway")
+	} else {
+		log.Info().Msg("Database URL configured")
+	}
+
 	// --- Phase 2: Platform & Repository Initialization ---
-	// Use auto-migration only if enabled (local dev). Production should use traditional migrations only.
+	// Use auto-migration when enabled (local dev) or auto-detected for Railway/PaaS
 	var db *gorm.DB
 	if cfg.EnableAutoMigration {
-		log.Warn().Msg("⚠️  AUTO-MIGRATION ENABLED - This should only be used in development!")
+		log.Info().Msg("Auto-migration enabled (Railway/PaaS or ENABLE_AUTO_MIGRATION=true)")
 		db, err = database.InitializeDatabaseWithAutoMigration(cfg.DatabaseURL)
 		if err != nil {
 			log.Fatal().Err(err).Msg("Failed to initialize database with auto-migration")
@@ -60,7 +69,7 @@ func main() {
 	} else {
 		db, err = database.InitializeDatabase(cfg.DatabaseURL)
 		if err != nil {
-			log.Fatal().Err(err).Msg("Failed to initialize database")
+			log.Fatal().Err(err).Msgf("Failed to initialize database: %v", err)
 		}
 		log.Info().Msg("Database initialized (traditional migrations only - production mode)")
 		log.Info().Msg("ℹ️  Run migrations manually: make migrate-up (or use golang-migrate CLI)")

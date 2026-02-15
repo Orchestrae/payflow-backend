@@ -2,6 +2,7 @@
 package config
 
 import (
+	"fmt"
 	"os"
 	"strings"
 	"time"
@@ -90,9 +91,40 @@ func Load() (*Config, error) {
 		}
 	}
 
+	// Fallback: build DSN from individual Postgres vars (Railway, etc.)
+	if config.DatabaseURL == "" {
+		host := os.Getenv("PGHOST")
+		port := os.Getenv("PGPORT")
+		user := os.Getenv("PGUSER")
+		pass := os.Getenv("PGPASSWORD")
+		dbname := os.Getenv("PGDATABASE")
+		sslmode := os.Getenv("PGSSLMODE")
+		if sslmode == "" {
+			sslmode = "require"
+		}
+		if host != "" && user != "" && dbname != "" {
+			if port == "" {
+				port = "5432"
+			}
+			config.DatabaseURL = fmt.Sprintf("postgres://%s:%s@%s:%s/%s?sslmode=%s",
+				user, pass, host, port, dbname, sslmode)
+		}
+	}
+
 	// Railway, Heroku, Render inject PORT at runtime - use it when set
 	if port := os.Getenv("PORT"); port != "" {
 		config.ServerPort = port
+	}
+
+	// Temporary: auto-enable migrations on Railway/PaaS (no manual migrate needed)
+	if config.DatabaseURL != "" &&
+		(strings.Contains(config.DatabaseURL, "railway") || strings.Contains(config.DatabaseURL, "rlwy")) {
+		config.EnableAutoMigration = true
+	}
+
+	// Temporary: JWT_SECRET fallback for Railway - insecure, change in production
+	if config.JWTSecret == "" {
+		config.JWTSecret = "temp-insecure-default-change-in-production"
 	}
 
 	return &config, nil
