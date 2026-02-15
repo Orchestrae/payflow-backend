@@ -46,21 +46,6 @@ down:
 	@echo "Stopping services with docker-compose..."
 	@$(DOCKER_COMPOSE) down
 
-# Push current branch to remote
-# Handles both new branches (sets upstream) and existing branches
-push:
-	@echo "Pushing to remote..."
-	@BRANCH=$$(git branch --show-current); \
-	git remote set-url origin https://$$(gh auth token)@github.com/Orchestrae/payflow-backend.git; \
-	if git ls-remote --heads origin $$BRANCH | grep -q $$BRANCH; then \
-		echo "Branch $$BRANCH exists on remote, pushing..."; \
-		git push origin $$BRANCH; \
-	else \
-		echo "Branch $$BRANCH is new, setting upstream..."; \
-		git push --set-upstream origin $$BRANCH; \
-	fi; \
-	git remote set-url origin https://github.com/Orchestrae/payflow-backend.git
-
 # --- Database Migrations ---
 # Ensure DSN is set in your environment or .env file for local use
 # DSN="postgres://payflow_user:payflow_secret@localhost:5432/payflow_db?sslmode=disable"
@@ -77,31 +62,41 @@ migrate-down:
 	@migrate -database "$(DSN)" -path ./migrations down 1
 
 # --- Git Commands ---
-# Git username (can be set via GIT_USERNAME env var or will be prompted)
-GIT_USERNAME ?= $(shell if [ -z "$$GIT_USERNAME" ]; then read -p "Enter GitHub username: " username && echo $$username; else echo $$GIT_USERNAME; fi)
+# Use GIT_USERNAME and GH_TOKEN for push, or fall back to gh auth token
+# Format: https://USERNAME:TOKEN@github.com/Orchestrae/payflow-backend.git
+REPO_URL = https://github.com/Orchestrae/payflow-backend.git
 
-# Ensures remote URL is set correctly with specified username
+# Ensures remote URL is set with token:username format
 git-setup:
 	@echo "Setting up git remote..."
-	@if [ -z "$(GIT_USERNAME)" ]; then \
-		read -p "Enter GitHub username: " username; \
-		git remote set-url origin https://$$username@github.com/Orchestrae/payflow-backend.git; \
+	@if [ -n "$$GH_TOKEN" ] && [ -n "$$GIT_USERNAME" ]; then \
+		git remote set-url origin https://$$GIT_USERNAME:$$GH_TOKEN@github.com/Orchestrae/payflow-backend.git; \
+		echo "✅ Remote configured (GIT_USERNAME:GH_TOKEN)"; \
+	elif command -v gh >/dev/null 2>&1; then \
+		git remote set-url origin https://$$(gh auth token)@github.com/Orchestrae/payflow-backend.git; \
+		echo "✅ Remote configured (gh auth token)"; \
 	else \
-		git remote set-url origin https://$(GIT_USERNAME)@github.com/Orchestrae/payflow-backend.git; \
+		read -p "GitHub username: " u; read -sp "Token: " t; echo; \
+		git remote set-url origin https://$$u:$$t@github.com/Orchestrae/payflow-backend.git; \
+		echo "✅ Remote configured"; \
 	fi
-	@echo "✅ Remote URL configured"
 
-# Pushes current branch to origin (prompts for username if not set)
+# Push: uses USERNAME:TOKEN format for auth
 push:
 	@echo "Pushing to remote..."
-	@if [ -z "$$GIT_USERNAME" ]; then \
-		read -p "Enter GitHub username: " username; \
-		git remote set-url origin https://$$username@github.com/Orchestrae/payflow-backend.git; \
+	@BRANCH=$$(git branch --show-current); \
+	if [ -n "$$GH_TOKEN" ] && [ -n "$$GIT_USERNAME" ]; then \
+		git remote set-url origin https://$$GIT_USERNAME:$$GH_TOKEN@github.com/Orchestrae/payflow-backend.git; \
+	elif command -v gh >/dev/null 2>&1; then \
+		git remote set-url origin https://$$(gh auth token)@github.com/Orchestrae/payflow-backend.git; \
+	fi; \
+	if git ls-remote --heads origin $$BRANCH 2>/dev/null | grep -q $$BRANCH; then \
+		git push origin $$BRANCH; \
 	else \
-		git remote set-url origin https://$$GIT_USERNAME@github.com/Orchestrae/payflow-backend.git; \
-	fi
-	@git push -u origin $$(git branch --show-current)
-	@echo "✅ Push successful!"
+		git push --set-upstream origin $$BRANCH; \
+	fi; \
+	git remote set-url origin $(REPO_URL); \
+	echo "✅ Push successful!"
 
 # Pushes current branch (assumes remote is already configured)
 push-fast:
@@ -143,4 +138,4 @@ help:
 	@echo "  push-fast     - Push current branch (assumes remote configured)"
 	@echo "  push-new      - Create new branch and push it"
 	@echo ""
-	@echo "  Usage: GIT_USERNAME=username make push  (to avoid prompts)"
+	@echo "  Usage: GIT_USERNAME=user GH_TOKEN=token make push"
