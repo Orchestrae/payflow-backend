@@ -85,7 +85,18 @@ func InitializeDatabase(dsn string) (*gorm.DB, error) {
 		return nil, fmt.Errorf("failed to connect to payflow_db: %w", err)
 	}
 
-	// Run automigration
+	return db, nil
+}
+
+// InitializeDatabaseWithAutoMigration handles database setup with optional auto-migration.
+// Use this for local development. In production, use InitializeDatabase + traditional migrations.
+func InitializeDatabaseWithAutoMigration(dsn string) (*gorm.DB, error) {
+	db, err := InitializeDatabase(dsn)
+	if err != nil {
+		return nil, err
+	}
+
+	// Run automigration (only for local development)
 	if err := AutoMigrateAll(db); err != nil {
 		return nil, fmt.Errorf("failed to run automigration: %w", err)
 	}

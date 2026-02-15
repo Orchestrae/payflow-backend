@@ -7,6 +7,7 @@ import (
 	"payflow/internal/api/middleware"
 	"payflow/internal/config"
 	"payflow/internal/domain"
+	"payflow/internal/platform/korapay"
 	"payflow/internal/service"
 
 	"github.com/go-chi/chi/v5"
@@ -26,6 +27,9 @@ func NewRouter(
 	transferSvc service.VFDTransferService,
 	bulkTransferSvc service.BulkTransferService,
 	newTransferSvc service.TransferService,
+	walletSvc service.WalletService,
+	accountHolderSvc service.AccountHolderService,
+	koraClient *korapay.Client,
 ) http.Handler {
 	r := chi.NewRouter()
 
@@ -52,6 +56,7 @@ func NewRouter(
 	transferHandler := handler.NewVFDTransferHandler(transferSvc)
 	bulkTransferHandler := handler.NewBulkTransferHandler(bulkTransferSvc)
 	newTransferHandler := handler.NewTransferHandler(newTransferSvc)
+	walletHandler := handler.NewWalletHandler(walletSvc, accountHolderSvc, cfg, koraClient)
 
 	// --- Public Routes ---
 	// No authentication required for these endpoints.
@@ -68,6 +73,12 @@ func NewRouter(
 		r.Post("/inward-credit", webhookHandler.HandleInwardCreditWebhook)
 		r.Post("/initial-inward-credit", webhookHandler.HandleInitialInwardCreditWebhook)
 		r.Post("/retrigger", webhookHandler.RetriggerWebhook)
+	})
+
+	// --- KoraPay Webhook Routes ---
+	// These are public endpoints that KoraPay will call
+	r.Route("/korapay/webhooks", func(r chi.Router) {
+		r.Post("/deposit", walletHandler.HandleDepositWebhook)
 	})
 
 	// --- Protected API v1 Group ---
@@ -168,6 +179,32 @@ func NewRouter(
 			r.Post("/batch", newTransferHandler.HandleBatchTransfer)
 			r.Get("/", newTransferHandler.HandleListTransfers)
 			r.Get("/{id}", newTransferHandler.HandleGetTransfer)
+		})
+
+		// --- Wallet Routes ---
+		// Wallet and virtual account management
+		r.Route("/wallets", func(r chi.Router) {
+			// Virtual Account Management
+			r.Post("/virtual-account", walletHandler.HandleCreateVirtualAccount)
+			r.Get("/", walletHandler.HandleGetWallet)
+			r.Get("/balance", walletHandler.HandleGetBalance)
+			r.Get("/transactions", walletHandler.HandleGetTransactions)
+
+			// Account Holder / KYC Management
+			r.Route("/account-holders", func(r chi.Router) {
+				r.Post("/", walletHandler.HandleCreateAccountHolder)
+				r.Get("/{reference}/details", walletHandler.HandleGetAccountHolderDetails)
+				r.Patch("/{reference}/update-kyc", walletHandler.HandleUpdateAccountHolderKYC)
+			})
+
+			// File Upload URL Generation
+			r.Post("/files/generate-upload-url", walletHandler.HandleGenerateFileUploadURL)
+
+			// Sandbox-only routes (admin only for safety)
+			r.Group(func(r chi.Router) {
+				r.Use(middleware.RoleMiddleware(domain.RoleAdmin))
+				r.Post("/sandbox/credit", walletHandler.HandleSandboxCredit)
+			})
 		})
 	})
 

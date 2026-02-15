@@ -1,5 +1,3 @@
-# Dockerfile.dev
-
 # syntax=docker/dockerfile:1
 FROM golang:1.24-alpine
 
@@ -11,7 +9,7 @@ RUN go mod download
 
 COPY . .
 
-RUN go install github.com/air-verse/air@latest
+RUN go install github.com/air-verse/air@v1.52.3
 
 EXPOSE 8080
 

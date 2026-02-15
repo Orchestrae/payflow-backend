@@ -39,6 +39,7 @@ type transferService struct {
 	providerManager *provider.TransferProviderManager
 	transferRepo    repository.TransferRepository
 	userRepo        repository.UserRepository
+	walletService   WalletService // Optional: can be nil if not available
 	txer            repository.Transactioner
 	config          TransferConfig
 }
@@ -55,9 +56,15 @@ func NewTransferService(
 		providerManager: providerManager,
 		transferRepo:    transferRepo,
 		userRepo:        userRepo,
+		walletService:   nil, // Can be set via SetWalletService if needed
 		txer:            txer,
 		config:          config,
 	}
+}
+
+// SetWalletService sets the wallet service for balance checking
+func (s *transferService) SetWalletService(walletService WalletService) {
+	s.walletService = walletService
 }
 
 // ExecuteTransfer executes a single transfer using the provider manager
@@ -91,8 +98,70 @@ func (s *transferService) ExecuteTransfer(ctx context.Context, businessID uint, 
 		}, nil
 	}
 
+	// Check balance if wallet service is available
+	if s.walletService != nil {
+		amountInt64, err := s.parseAmountToKobo(req.Amount)
+		if err != nil {
+			return &domain.SingleTransferResponse{
+				Success:        false,
+				Reference:      req.Reference,
+				Status:         "failed",
+				Error:          fmt.Sprintf("Invalid amount format: %v", err),
+				ProcessingTime: time.Since(startTime),
+			}, nil
+		}
+
+		// Check balance (includes checking locked balance)
+		if err := s.walletService.CheckBalance(ctx, businessID, amountInt64); err != nil {
+			slog.Warn("Insufficient balance for transfer",
+				"reference", req.Reference,
+				"amount", req.Amount,
+				"error", err.Error(),
+			)
+			return &domain.SingleTransferResponse{
+				Success:        false,
+				Reference:      req.Reference,
+				Status:         "failed",
+				Error:          err.Error(),
+				ProcessingTime: time.Since(startTime),
+			}, nil
+		}
+	}
+
 	// Get business user email for provider-specific needs (e.g., Korapay requires customer email)
 	s.enrichWithBusinessEmail(ctx, businessID, req)
+
+	// Lock balance if wallet service is available
+	amountInt64 := int64(0)
+	balanceLocked := false
+	withdrawalRecorded := false // Track if withdrawal was recorded (to prevent double unlock)
+	if s.walletService != nil {
+		var parseErr error
+		amountInt64, parseErr = s.parseAmountToKobo(req.Amount)
+		if parseErr == nil {
+			if lockErr := s.walletService.LockBalance(ctx, businessID, amountInt64); lockErr != nil {
+				return &domain.SingleTransferResponse{
+					Success:        false,
+					Reference:      req.Reference,
+					Status:         "failed",
+					Error:          fmt.Sprintf("Failed to lock balance: %v", lockErr),
+					ProcessingTime: time.Since(startTime),
+				}, nil
+			}
+			balanceLocked = true
+		}
+	}
+
+	// Unlock balance on failure (deferred until function returns)
+	// Note: defer closure captures variables by reference, so withdrawalRecorded will be checked at execute time
+	defer func() {
+		if balanceLocked && !withdrawalRecorded && s.walletService != nil {
+			// Only unlock if withdrawal wasn't recorded (which already handled balance)
+			if unlockErr := s.walletService.UnlockBalance(ctx, businessID, amountInt64); unlockErr != nil {
+				slog.Error("Failed to unlock balance", "error", unlockErr)
+			}
+		}
+	}()
 
 	// Create transfer record in database (pending state)
 	transfer := &domain.Transfer{
@@ -153,6 +222,22 @@ func (s *transferService) ExecuteTransfer(ctx context.Context, businessID uint, 
 	if err := s.transferRepo.Update(ctx, transfer); err != nil {
 		slog.Error("Failed to update transfer record", "error", err)
 		// Don't fail the response - transfer was successful
+	}
+
+	// Record withdrawal in wallet if service is available and transfer was successful
+	if s.walletService != nil && result.Success && result.Status == "success" {
+		feeInt64 := int64(0)
+		if result.Fee != "" {
+			if parsed, parseErr := s.parseAmountToKobo(result.Fee); parseErr == nil {
+				feeInt64 = parsed
+			}
+		}
+		if withdrawErr := s.walletService.RecordWithdrawal(ctx, businessID, transfer.ID, amountInt64, feeInt64, req.Reference, result.TransactionID); withdrawErr != nil {
+			slog.Error("Failed to record withdrawal in wallet", "error", withdrawErr)
+			// Don't fail the response - transfer was successful, just wallet recording failed
+		} else {
+			withdrawalRecorded = true // Set flag so defer won't unlock
+		}
 	}
 
 	processingTime := time.Since(startTime)
@@ -471,6 +556,25 @@ func (s *transferService) validateTransferAmount(amountStr string) error {
 	}
 
 	return nil
+}
+
+// parseAmountToKobo parses an amount string (e.g., "1000" or "1000.00") to int64 (kobo).
+// Assumes input is in main currency units (NGN) and converts to smallest unit (kobo).
+func (s *transferService) parseAmountToKobo(amountStr string) (int64, error) {
+	// Try parsing as integer first (assuming it's in main currency units)
+	amount, err := strconv.ParseInt(amountStr, 10, 64)
+	if err != nil {
+		// Try parsing as float in case it has decimals (e.g., "1000.00")
+		amountFloat, err := strconv.ParseFloat(amountStr, 64)
+		if err != nil {
+			return 0, fmt.Errorf("invalid amount format: %s", amountStr)
+		}
+		amount = int64(amountFloat)
+	}
+
+	// Convert to kobo (multiply by 100)
+	amountInKobo := amount * 100
+	return amountInKobo, nil
 }
 
 // Helper function
