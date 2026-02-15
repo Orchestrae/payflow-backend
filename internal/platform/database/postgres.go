@@ -17,82 +17,53 @@ import (
 
 // InitializeDatabase handles the complete database setup process
 func InitializeDatabase(dsn string) (*gorm.DB, error) {
-	// Always try direct connection first (works for Docker and standard local dev)
-	if dsn != "" {
-		db, err := NewPostgresDB(dsn)
-		if err == nil {
-			return db, nil
-		}
-		// Only attempt postgres superuser setup for localhost (local dev with fresh postgres)
-		if !strings.Contains(dsn, "@db:") && !strings.Contains(dsn, "host=db") {
-			log.Printf("Direct connection failed: %v", err)
-		} else {
-			return nil, fmt.Errorf("failed to connect to database: %w", err)
-		}
+	if dsn == "" {
+		return nil, fmt.Errorf("database URL not set: provide DB_URL or DATABASE_URL environment variable")
 	}
 
-	// Local dev: try postgres superuser to create user/database if needed
+	// Try direct connection first (works for Docker, Railway, and local dev)
+	db, err := NewPostgresDB(dsn)
+	if err == nil {
+		return db, nil
+	}
+
+	// Only attempt postgres superuser setup for localhost (local dev with fresh postgres)
+	if !strings.Contains(dsn, "localhost") {
+		return nil, fmt.Errorf("failed to connect to database: %w", err)
+	}
+
+	log.Printf("Direct connection failed: %v, trying postgres superuser setup", err)
 	postgresDSN := "host=localhost port=5432 user=postgres password=postgres dbname=postgres sslmode=disable"
 
-	db, err := gorm.Open(postgres.Open(postgresDSN), &gorm.Config{
+	db, err = gorm.Open(postgres.Open(postgresDSN), &gorm.Config{
 		Logger: logger.Default.LogMode(logger.Silent),
 	})
 	if err != nil {
-		log.Printf("Could not connect as postgres user, trying direct connection: %v", err)
-		return NewPostgresDB(dsn)
-	} else {
-		// We're connected as postgres, let's create the user and database
-		log.Println("Connected as postgres user, setting up database...")
-
-		// Create user if it doesn't exist
-		err = db.Exec(`DO $$ 
-			BEGIN 
-				IF NOT EXISTS (SELECT FROM pg_catalog.pg_roles WHERE rolname = 'payflow_user') THEN
-					CREATE USER payflow_user WITH PASSWORD 'payflow_secret';
-				END IF;
-			END
-			$$;`).Error
-		if err != nil {
-			log.Printf("Warning: Could not create user: %v", err)
-		}
-
-		// Check if database exists
-		var exists bool
-		err = db.Raw(`SELECT EXISTS(SELECT FROM pg_database WHERE datname = 'payflow_db')`).Scan(&exists).Error
-		if err != nil {
-			log.Printf("Warning: Could not check if database exists: %v", err)
-		}
-
-		// Create database if it doesn't exist
-		if !exists {
-			err = db.Exec(`CREATE DATABASE payflow_db OWNER payflow_user`).Error
-			if err != nil {
-				log.Printf("Warning: Could not create database: %v", err)
-			} else {
-				log.Println("Database payflow_db created successfully")
-			}
-		} else {
-			log.Println("Database payflow_db already exists")
-		}
-
-		// Grant privileges to the user
-		err = db.Exec(`GRANT ALL PRIVILEGES ON DATABASE payflow_db TO payflow_user`).Error
-		if err != nil {
-			log.Printf("Warning: Could not grant privileges: %v", err)
-		}
-
-		// Close the postgres connection
-		sqlDB, _ := db.DB()
-		sqlDB.Close()
+		log.Printf("Could not connect as postgres user: %v", err)
+		return nil, fmt.Errorf("failed to connect to database: %w", err)
 	}
 
-	// Now connect to our actual database
-	db, err = NewPostgresDB(dsn)
-	if err != nil {
-		return nil, fmt.Errorf("failed to connect to payflow_db: %w", err)
-	}
+	// Create user and database if needed
+	log.Println("Connected as postgres user, setting up database...")
+	_ = db.Exec(`DO $$ 
+		BEGIN 
+			IF NOT EXISTS (SELECT FROM pg_catalog.pg_roles WHERE rolname = 'payflow_user') THEN
+				CREATE USER payflow_user WITH PASSWORD 'payflow_secret';
+			END IF;
+		END
+		$$;`).Error
 
-	return db, nil
+	var exists bool
+	_ = db.Raw(`SELECT EXISTS(SELECT FROM pg_database WHERE datname = 'payflow_db')`).Scan(&exists).Error
+	if !exists {
+		_ = db.Exec(`CREATE DATABASE payflow_db OWNER payflow_user`).Error
+	}
+	_ = db.Exec(`GRANT ALL PRIVILEGES ON DATABASE payflow_db TO payflow_user`).Error
+
+	sqlDB, _ := db.DB()
+	sqlDB.Close()
+
+	return NewPostgresDB(dsn)
 }
 
 // InitializeDatabaseWithAutoMigration handles database setup with optional auto-migration.

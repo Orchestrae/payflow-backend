@@ -83,12 +83,11 @@ func Load() (*Config, error) {
 	config.JWTExpirationDuration = time.Duration(config.JWTExpiration) * time.Hour
 
 	// Ensure database URL is read from env - viper can miss it in some cases
-	// Support both DB_URL (our app) and DATABASE_URL (Railway, Heroku, Render, etc.)
-	if config.DatabaseURL == "" {
-		config.DatabaseURL = os.Getenv("DB_URL")
-	}
-	if config.DatabaseURL == "" {
-		config.DatabaseURL = os.Getenv("DATABASE_URL")
+	// Check common PaaS env vars in order: Railway, Heroku, Render, etc.
+	for _, key := range []string{"DB_URL", "DATABASE_URL", "DATABASE_PRIVATE_URL", "DATABASE_PUBLIC_URL"} {
+		if config.DatabaseURL == "" {
+			config.DatabaseURL = os.Getenv(key)
+		}
 	}
 
 	return &config, nil
