@@ -2,6 +2,7 @@
 package api
 
 import (
+	"encoding/json"
 	"net/http"
 	"payflow/internal/api/handler"
 	"payflow/internal/api/middleware"
@@ -12,12 +13,61 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/cors"
+	"gorm.io/gorm"
 )
+
+// healthResponse represents the /health endpoint response.
+type healthResponse struct {
+	Status   string            `json:"status"`
+	Message  string            `json:"message"`
+	Server   string            `json:"server"`
+	Database healthDBStatus    `json:"database"`
+}
+
+type healthDBStatus struct {
+	Status  string `json:"status"`
+	Message string `json:"message,omitempty"`
+}
+
+func healthHandler(db *gorm.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+
+		dbStatus := healthDBStatus{Status: "ok", Message: "connected"}
+		sqlDB, err := db.DB()
+		if err != nil {
+			dbStatus = healthDBStatus{Status: "unavailable", Message: err.Error()}
+		} else if err := sqlDB.Ping(); err != nil {
+			dbStatus = healthDBStatus{Status: "unavailable", Message: err.Error()}
+		}
+
+		healthy := dbStatus.Status == "ok"
+		resp := healthResponse{
+			Server:   "ok",
+			Database: dbStatus,
+		}
+		if healthy {
+			resp.Status = "healthy"
+			resp.Message = "Server is running. All systems operational."
+		} else {
+			resp.Status = "unhealthy"
+			resp.Message = "Server is running but database is unreachable."
+		}
+
+		statusCode := http.StatusOK
+		if !healthy {
+			statusCode = http.StatusServiceUnavailable
+		}
+		w.WriteHeader(statusCode)
+		_ = json.NewEncoder(w).Encode(resp)
+	}
+}
 
 // NewRouter initializes and returns the main application router.
 // It takes the application config and all required services as dependencies.
 func NewRouter(
 	cfg *config.Config,
+	db *gorm.DB,
 	authSvc service.AuthService,
 	employeeSvc service.EmployeeService,
 	cadreSvc service.CadreService,
@@ -57,6 +107,10 @@ func NewRouter(
 	bulkTransferHandler := handler.NewBulkTransferHandler(bulkTransferSvc)
 	newTransferHandler := handler.NewTransferHandler(newTransferSvc)
 	walletHandler := handler.NewWalletHandler(walletSvc, accountHolderSvc, cfg, koraClient)
+
+	// --- Health Check ---
+	// Used by load balancers and deployment verification (no auth required).
+	r.Get("/health", healthHandler(db))
 
 	// --- Public Routes ---
 	// No authentication required for these endpoints.

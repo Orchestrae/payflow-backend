@@ -2,6 +2,7 @@
 package config
 
 import (
+	"os"
 	"strings"
 	"time"
 
@@ -80,6 +81,11 @@ func Load() (*Config, error) {
 
 	// Viper doesn't handle time.Duration from env well, so we do it manually.
 	config.JWTExpirationDuration = time.Duration(config.JWTExpiration) * time.Hour
+
+	// Ensure DB_URL is read from env (Docker, etc.) - viper can miss it in some cases
+	if config.DatabaseURL == "" {
+		config.DatabaseURL = os.Getenv("DB_URL")
+	}
 
 	return &config, nil
 }

@@ -71,12 +71,10 @@ CREATE TABLE IF NOT EXISTS wallet_transactions (
     -- Timestamps
     processed_at TIMESTAMP, -- When transaction was processed
 
-    -- Indexes
-    CONSTRAINT idx_wallet_transactions_reference UNIQUE (reference),
-    CONSTRAINT idx_wallet_transactions_business_id ON wallet_transactions(business_id),
-    CONSTRAINT idx_wallet_transactions_transfer_id ON wallet_transactions(transfer_id) WHERE transfer_id IS NOT NULL
+    CONSTRAINT idx_wallet_transactions_reference UNIQUE (reference)
 );
 
 CREATE INDEX IF NOT EXISTS idx_wallet_transactions_business_id_lookup ON wallet_transactions(business_id, created_at DESC) WHERE deleted_at IS NULL;
+CREATE INDEX IF NOT EXISTS idx_wallet_transactions_transfer_id ON wallet_transactions(transfer_id) WHERE transfer_id IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_wallet_transactions_type ON wallet_transactions(transaction_type) WHERE deleted_at IS NULL;
 CREATE INDEX IF NOT EXISTS idx_wallet_transactions_provider_reference ON wallet_transactions(provider_reference) WHERE provider_reference IS NOT NULL;

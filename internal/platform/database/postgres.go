@@ -17,22 +17,29 @@ import (
 
 // InitializeDatabase handles the complete database setup process
 func InitializeDatabase(dsn string) (*gorm.DB, error) {
-	// First, connect to postgres database to create our user and database
+	// Always try direct connection first (works for Docker and standard local dev)
+	if dsn != "" {
+		db, err := NewPostgresDB(dsn)
+		if err == nil {
+			return db, nil
+		}
+		// Only attempt postgres superuser setup for localhost (local dev with fresh postgres)
+		if !strings.Contains(dsn, "@db:") && !strings.Contains(dsn, "host=db") {
+			log.Printf("Direct connection failed: %v", err)
+		} else {
+			return nil, fmt.Errorf("failed to connect to database: %w", err)
+		}
+	}
+
+	// Local dev: try postgres superuser to create user/database if needed
 	postgresDSN := "host=localhost port=5432 user=postgres password=postgres dbname=postgres sslmode=disable"
 
-	// Try to connect as postgres user first
 	db, err := gorm.Open(postgres.Open(postgresDSN), &gorm.Config{
 		Logger: logger.Default.LogMode(logger.Silent),
 	})
 	if err != nil {
 		log.Printf("Could not connect as postgres user, trying direct connection: %v", err)
-		// If postgres user doesn't work, try direct connection
-		db, err = gorm.Open(postgres.Open(dsn), &gorm.Config{
-			Logger: logger.Default.LogMode(logger.Silent),
-		})
-		if err != nil {
-			return nil, fmt.Errorf("failed to connect to database: %w", err)
-		}
+		return NewPostgresDB(dsn)
 	} else {
 		// We're connected as postgres, let's create the user and database
 		log.Println("Connected as postgres user, setting up database...")

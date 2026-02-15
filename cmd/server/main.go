@@ -182,7 +182,7 @@ func main() {
 	}
 
 	// --- Phase 5: API Router & Server Startup ---
-	router := api.NewRouter(cfg, authSvc, employeeSvc, cadreSvc, deductionRuleSvc, payrollSvc, webhookSvc, transferSvc, bulkTransferSvc, transferSvcNew, walletSvc, accountHolderSvc, koraClient)
+	router := api.NewRouter(cfg, db, authSvc, employeeSvc, cadreSvc, deductionRuleSvc, payrollSvc, webhookSvc, transferSvc, bulkTransferSvc, transferSvcNew, walletSvc, accountHolderSvc, koraClient)
 	log.Info().Msg("API router initialized")
 
 	server := &http.Server{
