@@ -45,33 +45,33 @@ type Transfer struct {
 	Model
 
 	// Business relationship
-	BusinessID uint `gorm:"index"`
+	BusinessID uint `gorm:"index" json:"business_id"`
 
 	// Core transfer details
-	Reference string `gorm:"size:100;uniqueIndex"`
-	Amount    string `gorm:"size:20"`
-	Currency  string `gorm:"size:10;default:'NGN'"`
-	Narration string `gorm:"size:500"`
+	Reference string `gorm:"size:100;uniqueIndex" json:"reference"`
+	Amount    string `gorm:"size:20" json:"amount"`
+	Currency  string `gorm:"size:10;default:'NGN'" json:"currency"`
+	Narration string `gorm:"size:500" json:"narration,omitempty"`
 
 	// Recipient details
-	RecipientBankCode      string `gorm:"size:10"`
-	RecipientAccountNumber string `gorm:"size:20;index"`
-	RecipientAccountName   string `gorm:"size:255"`
+	RecipientBankCode      string `gorm:"size:10" json:"recipient_bank_code"`
+	RecipientAccountNumber string `gorm:"size:20;index" json:"recipient_account_number"`
+	RecipientAccountName   string `gorm:"size:255" json:"recipient_account_name"`
 
 	// Provider and status
-	Provider        string `gorm:"size:20"`                   // korapay, vfd, etc.
-	Status          string `gorm:"size:20;default:'pending'"` // pending, processing, success, failed
-	TransactionID   string `gorm:"size:100"`                  // Provider's transaction ID
-	ProviderStatus  string `gorm:"size:50"`                   // Provider-specific status
-	ProviderMessage string `gorm:"size:500"`                  // Provider-specific message
-	Fee             string `gorm:"size:20"`
+	Provider        string `gorm:"size:20" json:"provider"`
+	Status          string `gorm:"size:20;default:'pending'" json:"status"`
+	TransactionID   string `gorm:"size:100" json:"transaction_id,omitempty"`
+	ProviderStatus  string `gorm:"size:50" json:"provider_status,omitempty"`
+	ProviderMessage string `gorm:"size:500" json:"provider_message,omitempty"`
+	Fee             string `gorm:"size:20" json:"fee,omitempty"`
 
 	// Processing tracking
-	ProcessedAt     *time.Time
-	ProcessingError *string `gorm:"size:1000"`
+	ProcessedAt     *time.Time `json:"processed_at,omitempty"`
+	ProcessingError *string    `gorm:"size:1000" json:"processing_error,omitempty"`
 
 	// Relationships
-	Business *Business `gorm:"-"`
+	Business *Business `gorm:"-" json:"-"`
 }
 
 // TableName specifies the table name for GORM

@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"log/slog"
 	"net/http"
+	"payflow/internal/api/middleware"
 	"payflow/internal/api/request"
 	"payflow/internal/api/response"
 	"payflow/internal/domain"
@@ -149,21 +150,15 @@ func (h *VFDWebhookHandler) RetriggerWebhook(w http.ResponseWriter, r *http.Requ
 // ListWebhookNotifications handles GET /vfd/webhooks
 // This endpoint lists webhook notifications for a business
 func (h *VFDWebhookHandler) ListWebhookNotifications(w http.ResponseWriter, r *http.Request) {
-	// Get query parameters
+	claims, ok := middleware.GetClaimsFromContext(r.Context())
+	if !ok {
+		response.RespondWithError(w, domain.ErrUnauthorized)
+		return
+	}
+	businessID := uint64(claims.BusinessID)
+
 	pageStr := r.URL.Query().Get("page")
 	limitStr := r.URL.Query().Get("limit")
-	businessIDStr := r.URL.Query().Get("business_id")
-
-	if businessIDStr == "" {
-		response.RespondWithError(w, domain.ErrValidationFailed)
-		return
-	}
-
-	businessID, err := strconv.ParseUint(businessIDStr, 10, 32)
-	if err != nil {
-		response.RespondWithError(w, domain.ErrValidationFailed)
-		return
-	}
 
 	page := 1
 	if pageStr != "" {

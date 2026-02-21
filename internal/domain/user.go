@@ -11,12 +11,12 @@ const (
 
 type User struct {
 	Model
-	BusinessID   uint     `gorm:"index"`
-	Email        string   `gorm:"uniqueIndex;size:255"`
-	PasswordHash string   `gorm:"size:255"`
-	Role         UserRole `gorm:"type:user_role"`
-	IsVerified   bool     `gorm:"default:false"`
+	BusinessID   uint     `gorm:"index" json:"business_id"`
+	Email        string   `gorm:"uniqueIndex;size:255" json:"email"`
+	PasswordHash string   `gorm:"size:255" json:"-"`
+	Role         UserRole `gorm:"type:user_role" json:"role"`
+	IsVerified   bool     `gorm:"default:false" json:"is_verified"`
 
 	// Relationships (without foreign key constraints to avoid circular dependency)
-	Business *Business `gorm:"-"`
+	Business *Business `gorm:"-" json:"-"`
 }

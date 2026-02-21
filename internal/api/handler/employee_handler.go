@@ -52,6 +52,7 @@ func (h *EmployeeHandler) CreateEmployee(w http.ResponseWriter, r *http.Request)
 		FullName:          req.FullName,
 		Email:             req.Email,
 		BankName:          req.BankName,
+		BankCode:          req.BankCode,
 		BankAccountNumber: req.BankAccountNumber,
 		IsActive:          true, // New employees are active by default
 	}
@@ -137,6 +138,7 @@ func (h *EmployeeHandler) UpdateEmployee(w http.ResponseWriter, r *http.Request)
 		FullName:          req.FullName,
 		Email:             req.Email,
 		BankName:          req.BankName,
+		BankCode:          req.BankCode,
 		BankAccountNumber: req.BankAccountNumber,
 	}
 

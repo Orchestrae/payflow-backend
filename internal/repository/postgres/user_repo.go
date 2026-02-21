@@ -3,7 +3,6 @@ package postgres
 
 import (
 	"context"
-	"errors"
 	"payflow/internal/domain"
 	"payflow/internal/repository"
 
@@ -29,10 +28,7 @@ func (r *userRepository) WithTx(tx repository.Transactioner) repository.UserRepo
 func (r *userRepository) Create(ctx context.Context, user *domain.User) error {
 	dbUser := UserFromDomain(user)
 	if err := r.db.WithContext(ctx).Create(dbUser).Error; err != nil {
-		if errors.Is(err, gorm.ErrDuplicatedKey) { // This might be driver-specific
-			return domain.ErrConflict
-		}
-		return err
+		return DBErrToDomainErr(err)
 	}
 	*user = *dbUser.ToDomain()
 	return nil

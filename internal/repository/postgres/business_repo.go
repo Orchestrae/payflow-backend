@@ -28,7 +28,7 @@ func (r *businessRepository) WithTx(tx repository.Transactioner) repository.Busi
 func (r *businessRepository) Create(ctx context.Context, business *domain.Business) error {
 	dbBusiness := BusinessFromDomain(business)
 	if err := r.db.WithContext(ctx).Create(dbBusiness).Error; err != nil {
-		return err
+		return DBErrToDomainErr(err)
 	}
 	*business = *dbBusiness.ToDomain()
 	return nil

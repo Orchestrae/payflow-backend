@@ -112,13 +112,17 @@ func (p *korapayAccountHolderProvider) CreateAccountHolder(ctx context.Context, 
 	}
 
 	// Call KoraPay API
-	koraResponse, err := p.client.CreateAccountHolder(koraReq)
+	koraResponse, err := p.client.CreateAccountHolder(ctx, koraReq)
 	if err != nil {
 		return nil, fmt.Errorf("korapay create account holder failed: %w", err)
 	}
 
 	if !koraResponse.Status {
 		return nil, fmt.Errorf("korapay create account holder error: %s", koraResponse.Message)
+	}
+
+	if koraResponse.Data == nil {
+		return nil, fmt.Errorf("korapay create account holder returned nil data")
 	}
 
 	// Map KoraPay response to domain model
@@ -132,13 +136,17 @@ func (p *korapayAccountHolderProvider) CreateAccountHolder(ctx context.Context, 
 
 // GetAccountHolderDetails implements the AccountHolderProvider interface.
 func (p *korapayAccountHolderProvider) GetAccountHolderDetails(ctx context.Context, reference string) (*domain.AccountHolderDetails, error) {
-	koraResponse, err := p.client.GetAccountHolderDetails(reference)
+	koraResponse, err := p.client.GetAccountHolderDetails(ctx, reference)
 	if err != nil {
 		return nil, fmt.Errorf("korapay get account holder details failed: %w", err)
 	}
 
 	if !koraResponse.Status {
 		return nil, fmt.Errorf("korapay get account holder details error: %s", koraResponse.Message)
+	}
+
+	if koraResponse.Data == nil {
+		return nil, fmt.Errorf("korapay get account holder details returned nil data")
 	}
 
 	// Parse date_of_birth
@@ -254,13 +262,17 @@ func (p *korapayAccountHolderProvider) UpdateAccountHolderKYC(ctx context.Contex
 	}
 
 	// Call KoraPay API
-	koraResponse, err := p.client.UpdateAccountHolderKYC(reference, koraReq)
+	koraResponse, err := p.client.UpdateAccountHolderKYC(ctx, reference, koraReq)
 	if err != nil {
 		return nil, fmt.Errorf("korapay update account holder KYC failed: %w", err)
 	}
 
 	if !koraResponse.Status {
 		return nil, fmt.Errorf("korapay update account holder KYC error: %s", koraResponse.Message)
+	}
+
+	if koraResponse.Data == nil {
+		return nil, fmt.Errorf("korapay update account holder KYC returned nil data")
 	}
 
 	// Map KoraPay response to domain model
@@ -282,13 +294,17 @@ func (p *korapayAccountHolderProvider) GenerateFileUploadURL(ctx context.Context
 	}
 
 	// Call KoraPay API
-	koraResponse, err := p.client.GenerateFileUploadURL(koraReq)
+	koraResponse, err := p.client.GenerateFileUploadURL(ctx, koraReq)
 	if err != nil {
 		return nil, fmt.Errorf("korapay generate file upload URL failed: %w", err)
 	}
 
 	if !koraResponse.Status {
 		return nil, fmt.Errorf("korapay generate file upload URL error: %s", koraResponse.Message)
+	}
+
+	if koraResponse.Data == nil {
+		return nil, fmt.Errorf("korapay generate file upload URL returned nil data")
 	}
 
 	// Parse expiration time

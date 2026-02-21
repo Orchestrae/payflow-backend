@@ -4,7 +4,6 @@ package service
 import (
 	"context"
 	"fmt"
-	"log/slog"
 	"payflow/internal/domain"
 	"payflow/internal/repository"
 
@@ -44,7 +43,7 @@ func (s *employeeService) CreateEmployee(ctx context.Context, emp *domain.Employ
 			log.Ctx(ctx).Warn().Uint("cadreID", emp.CadreID).Msg("Attempt to create employee with non-existent or forbidden cadre")
 			return nil, fmt.Errorf("%w: cadre with ID %d not found for business", domain.ErrValidationFailed, emp.CadreID)
 		}
-		slog.Error("Error retrieving cadre for employee creation", "error", err, "cadreID", emp.CadreID)
+		log.Error().Err(err).Uint("cadreID", emp.CadreID).Msg("Error retrieving cadre for employee creation")
 		return nil, err // Internal error
 	}
 
@@ -53,7 +52,9 @@ func (s *employeeService) CreateEmployee(ctx context.Context, emp *domain.Employ
 		return nil, domain.ErrForbidden
 	}
 
-	// validate that email is unique within the business manually since IsEmailExistByBusiness is missing
+	// TODO: This email uniqueness check loads ALL employees for the business, which is inefficient
+	// for large teams. Replace with a dedicated repository method like FindByEmail(ctx, businessID, email)
+	// or a unique DB constraint on (business_id, email) once the repository supports it.
 	employees, err := s.employeeRepo.FindByBusinessID(ctx, emp.BusinessID)
 	if err != nil {
 		return nil, err

@@ -75,8 +75,11 @@ func (h *CadreHandler) ListCadres(w http.ResponseWriter, r *http.Request) {
 
 // GetCadreByID handles GET /cadres/{cadreID}
 func (h *CadreHandler) GetCadreByID(w http.ResponseWriter, r *http.Request) {
-	cadreIDStr := chi.URLParam(r, "cadreID")
-	cadreID, _ := strconv.ParseUint(cadreIDStr, 10, 32)
+	cadreID, err := strconv.ParseUint(chi.URLParam(r, "cadreID"), 10, 32)
+	if err != nil {
+		response.RespondWithError(w, domain.ErrValidationFailed)
+		return
+	}
 
 	claims, ok := middleware.GetClaimsFromContext(r.Context())
 	if !ok {
@@ -95,8 +98,11 @@ func (h *CadreHandler) GetCadreByID(w http.ResponseWriter, r *http.Request) {
 
 // UpdateCadre handles PUT /cadres/{cadreID}
 func (h *CadreHandler) UpdateCadre(w http.ResponseWriter, r *http.Request) {
-	// cadreIDStr := chi.URLParam(r, "cadreID")
-	// cadreID, _ := strconv.ParseUint(cadreIDStr, 10, 32)
+	cadreID, err := strconv.ParseUint(chi.URLParam(r, "cadreID"), 10, 32)
+	if err != nil {
+		response.RespondWithError(w, domain.ErrValidationFailed)
+		return
+	}
 
 	var req request.UpdateCadreRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -110,11 +116,12 @@ func (h *CadreHandler) UpdateCadre(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Update the cadre
 	cadre := &domain.Cadre{
-		BusinessID: claims.BusinessID,
-		Name:       req.Name,
+		BusinessID:        claims.BusinessID,
+		Name:              req.Name,
+		EarningComponents: req.EarningComponents,
 	}
+	cadre.ID = uint(cadreID)
 
 	updatedCadre, err := h.cadreService.UpdateCadre(r.Context(), cadre)
 	if err != nil {
@@ -127,8 +134,11 @@ func (h *CadreHandler) UpdateCadre(w http.ResponseWriter, r *http.Request) {
 
 // DeleteCadre handles DELETE /cadres/{cadreID}
 func (h *CadreHandler) DeleteCadre(w http.ResponseWriter, r *http.Request) {
-	cadreIDStr := chi.URLParam(r, "cadreID")
-	cadreID, _ := strconv.ParseUint(cadreIDStr, 10, 32)
+	cadreID, err := strconv.ParseUint(chi.URLParam(r, "cadreID"), 10, 32)
+	if err != nil {
+		response.RespondWithError(w, domain.ErrValidationFailed)
+		return
+	}
 
 	claims, ok := middleware.GetClaimsFromContext(r.Context())
 	if !ok {

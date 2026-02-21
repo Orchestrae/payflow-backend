@@ -151,7 +151,7 @@ func NewRouter(
 				r.Get("/", employeeHandler.ListEmployees)
 				r.Get("/{employeeID}", employeeHandler.GetEmployeeByID)
 				r.Put("/{employeeID}", employeeHandler.UpdateEmployee)
-				r.Patch("/{employeeID}/deactivate", employeeHandler.DeactivateEmployee) // Use PATCH for partial updates/state changes
+				r.Patch("/{employeeID}/deactivate", employeeHandler.DeactivateEmployee)
 			})
 
 			// Cadre (Salary Structure) Management
@@ -162,21 +162,31 @@ func NewRouter(
 				r.Put("/{cadreID}", cadreHandler.UpdateCadre)
 				r.Delete("/{cadreID}", cadreHandler.DeleteCadre)
 			})
+		})
 
-			// Payroll Workflow - Actions for Operators and Approvers
-			r.Route("/payroll-runs", func(r chi.Router) {
+		// --- Payroll Workflow ---
+		// Accessible by Admin, Operator, and Approver roles
+		r.Route("/payroll-runs", func(r chi.Router) {
+			// Admin and Operator can create, list, view, submit, and process payroll
+			r.Group(func(r chi.Router) {
+				r.Use(middleware.RoleMiddleware(domain.RoleAdmin, domain.RoleOperator))
 				r.Post("/", payrollHandler.CreatePayrollRun)
+				r.Post("/{runID}/submit", payrollHandler.SubmitForApproval)
+				r.Post("/{runID}/process-now", payrollHandler.ProcessPayrollRunInstantly)
+			})
+
+			// All authenticated roles can view payroll runs
+			r.Group(func(r chi.Router) {
+				r.Use(middleware.RoleMiddleware(domain.RoleAdmin, domain.RoleOperator, domain.RoleApprover))
 				r.Get("/", payrollHandler.ListPayrollRuns)
 				r.Get("/{runID}", payrollHandler.GetPayrollRunByID)
-				r.Post("/{runID}/submit", payrollHandler.SubmitForApproval)
-				r.Post("/{runID}/process-now", payrollHandler.ProcessPayrollRunInstantly) // Instant run for testing
+			})
 
-				// Approver-specific routes (Admin and Approver roles)
-				r.Group(func(r chi.Router) {
-					r.Use(middleware.RoleMiddleware(domain.RoleAdmin, domain.RoleApprover))
-					r.Post("/{runID}/approve", payrollHandler.ApprovePayrollRun)
-					r.Post("/{runID}/reject", payrollHandler.RejectPayrollRun)
-				})
+			// Admin and Approver can approve/reject payroll
+			r.Group(func(r chi.Router) {
+				r.Use(middleware.RoleMiddleware(domain.RoleAdmin, domain.RoleApprover))
+				r.Post("/{runID}/approve", payrollHandler.ApprovePayrollRun)
+				r.Post("/{runID}/reject", payrollHandler.RejectPayrollRun)
 			})
 		})
 

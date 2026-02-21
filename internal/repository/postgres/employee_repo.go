@@ -4,7 +4,6 @@ package postgres
 import (
 	"context"
 	"errors"
-	"log"
 	"payflow/internal/domain"
 	"payflow/internal/repository"
 
@@ -21,29 +20,19 @@ func NewEmployeeRepository(db *gorm.DB) repository.EmployeeRepository {
 
 func (r *employeeRepository) FindActiveByBusinessID(ctx context.Context, businessID uint) ([]domain.Employee, error) {
 	var dbEmployees []Employee
-	// Here is the magic of GORM's preloading for relational data.
-	// It fetches employees and, for each employee, fetches their associated Cadre
-	// and for each Cadre, its EarningComponents and DeductionRules.
 	err := r.db.WithContext(ctx).
 		Preload("Cadre.EarningComponents").
-		//Preload("Cadre.DeductionRules").
+		Preload("Cadre.DeductionRules").
 		Where("business_id = ? AND is_active = ?", businessID, true).
 		Find(&dbEmployees).Error
-
 	if err != nil {
 		return nil, err
 	}
-	for _, employee := range dbEmployees {
-		log.Println(employee.ID)
-		log.Println(employee.CadreID)
-		log.Println(employee.Cadre.EarningComponents)
-		log.Println(employee.Cadre.DeductionRules)
-	}
+
 	domainEmployees := make([]domain.Employee, len(dbEmployees))
 	for i, dbEmp := range dbEmployees {
 		domainEmployees[i] = *dbEmp.ToDomain()
 	}
-	log.Println(domainEmployees)
 	return domainEmployees, nil
 }
 
@@ -91,6 +80,8 @@ func (r *employeeRepository) Delete(ctx context.Context, id uint, businessID uin
 func (r *employeeRepository) FindByBusinessID(ctx context.Context, businessID uint) ([]*domain.Employee, error) {
 	var dbEmployees []Employee
 	err := r.db.WithContext(ctx).
+		Preload("Cadre.EarningComponents").
+		Preload("Cadre.DeductionRules").
 		Where("business_id = ?", businessID).
 		Find(&dbEmployees).Error
 	if err != nil {
@@ -107,6 +98,8 @@ func (r *employeeRepository) FindByBusinessID(ctx context.Context, businessID ui
 func (r *employeeRepository) FindByID(ctx context.Context, id uint, businessID uint) (*domain.Employee, error) {
 	var dbEmployee Employee
 	if err := r.db.WithContext(ctx).
+		Preload("Cadre.EarningComponents").
+		Preload("Cadre.DeductionRules").
 		Where("id = ? AND business_id = ?", id, businessID).
 		First(&dbEmployee).Error; err != nil {
 		if err == gorm.ErrRecordNotFound {

@@ -86,8 +86,8 @@ func (s *authService) RegisterBusiness(ctx context.Context, name, email, passwor
 	businessRepoTx := s.businessRepo.WithTx(txerObj)
 	if err := businessRepoTx.Create(ctx, business); err != nil {
 		s.txer.Rollback(tx)
-		if err == domain.ErrConflict { // Assuming repo can detect this
-			return nil, nil, err
+		if err == domain.ErrConflict {
+			return nil, nil, fmt.Errorf("business already exists: %w", domain.ErrConflict)
 		}
 		return nil, nil, fmt.Errorf("could not create business: %w", err)
 	}
@@ -106,7 +106,7 @@ func (s *authService) RegisterBusiness(ctx context.Context, name, email, passwor
 	if err := userRepoTx.Create(ctx, adminUser); err != nil {
 		s.txer.Rollback(tx)
 		if err == domain.ErrConflict {
-			return nil, nil, fmt.Errorf("user with email '%s' already exists", email)
+			return nil, nil, fmt.Errorf("user with email '%s' already exists: %w", email, domain.ErrConflict)
 		}
 		return nil, nil, fmt.Errorf("could not create admin user: %w", err)
 	}
@@ -118,36 +118,44 @@ func (s *authService) RegisterBusiness(ctx context.Context, name, email, passwor
 		return nil, nil, fmt.Errorf("could not link admin to business: %w", err)
 	}
 
-	// 5. Create VFD corporate account
-	vfdDetails := vfd.NewAccountDetails{
-		RCNumber:          rcNumber,
-		CompanyName:       name,
-		IncorporationDate: incorporationDate,
-		DirectorBVN:       directorBVN,
+	// 5. Try to create VFD corporate account (optional - may not be configured)
+	var corporateAccount *vfd.CorporateAccount
+	if s.vfdService != nil {
+		vfdDetails := vfd.NewAccountDetails{
+			RCNumber:          rcNumber,
+			CompanyName:       name,
+			IncorporationDate: incorporationDate,
+			DirectorBVN:       directorBVN,
+		}
+
+		account, err := s.vfdService.CreateNewCorporateAccount(ctx, vfdDetails)
+		if err != nil {
+			// VFD is optional - log the error but don't fail registration
+			fmt.Printf("Warning: VFD corporate account creation failed (non-critical): %v\n", err)
+		} else {
+			corporateAccount = account
+			business.VFDAccountNumber = &corporateAccount.AccountNumber
+			business.VFDAccountName = &corporateAccount.AccountName
+			if err := businessRepoTx.Update(ctx, business); err != nil {
+				s.txer.Rollback(tx)
+				return nil, nil, fmt.Errorf("could not update business with VFD account details: %w", err)
+			}
+		}
 	}
 
-	corporateAccount, err := s.vfdService.CreateNewCorporateAccount(ctx, vfdDetails)
-	if err != nil {
-		s.txer.Rollback(tx)
-		return nil, nil, fmt.Errorf("could not create VFD corporate account: %w", err)
+	// Ensure we have a non-nil response even if VFD wasn't configured
+	if corporateAccount == nil {
+		corporateAccount = &vfd.CorporateAccount{
+			AccountNumber: "",
+			AccountName:   name,
+		}
 	}
 
-	// 6. Update business with VFD account details
-	business.VFDAccountNumber = &corporateAccount.AccountNumber
-	business.VFDAccountName = &corporateAccount.AccountName
-	if err := businessRepoTx.Update(ctx, business); err != nil {
-		s.txer.Rollback(tx)
-		return nil, nil, fmt.Errorf("could not update business with VFD account details: %w", err)
-	}
-
-	// 7. Commit the transaction
+	// 6. Commit the transaction
 	if err := s.txer.Commit(tx); err != nil {
 		s.txer.Rollback(tx)
 		return nil, nil, fmt.Errorf("failed to commit registration transaction: %w", err)
 	}
-
-	// TODO: Trigger email verification flow via NotificationService
-	// s.notificationService.SendVerificationEmail(ctx, adminUser)
 
 	return adminUser, corporateAccount, nil
 }
