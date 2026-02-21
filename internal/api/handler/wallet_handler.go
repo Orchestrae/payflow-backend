@@ -1,14 +1,19 @@
 package handler
 
 import (
+	"crypto/hmac"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"io"
 	"log/slog"
+	"math"
 	"net/http"
 	"strconv"
 	"strings"
 	"time"
 
+	"payflow/internal/api/middleware"
 	"payflow/internal/api/request"
 	"payflow/internal/api/response"
 	"payflow/internal/config"
@@ -23,8 +28,9 @@ import (
 type WalletHandler struct {
 	walletService        service.WalletService
 	accountHolderService service.AccountHolderService
-	koraClient           *korapay.Client // For sandbox credit only
-	koraBaseURL          string          // To check if in sandbox
+	koraClient           *korapay.Client
+	koraBaseURL          string
+	koraSecretKey        string // For webhook signature verification
 	validate             *validator.Validate
 }
 
@@ -39,14 +45,19 @@ func NewWalletHandler(
 		accountHolderService: accountHolderService,
 		koraClient:           koraClient,
 		koraBaseURL:          cfg.KoraPayBaseURL,
+		koraSecretKey:        cfg.KoraPayAPIKey,
 		validate:             validator.New(),
 	}
 }
 
 // HandleCreateVirtualAccount handles POST /v1/wallets/virtual-account
-// Creates a virtual account for a business
 func (h *WalletHandler) HandleCreateVirtualAccount(w http.ResponseWriter, r *http.Request) {
-	businessID := r.Context().Value("business_id").(uint)
+	claims, ok := middleware.GetClaimsFromContext(r.Context())
+	if !ok {
+		response.RespondWithError(w, domain.ErrUnauthorized)
+		return
+	}
+	businessID := claims.BusinessID
 
 	var req request.CreateVirtualAccountRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -61,20 +72,18 @@ func (h *WalletHandler) HandleCreateVirtualAccount(w http.ResponseWriter, r *htt
 		return
 	}
 
-	// Convert request to domain model
 	domainReq := &domain.CreateVirtualAccountRequest{
-		BusinessID:      businessID,
-		AccountName:     req.AccountName,
+		BusinessID:       businessID,
+		AccountName:      req.AccountName,
 		AccountReference: req.AccountReference,
-		CustomerName:    req.CustomerName,
-		CustomerEmail:   req.CustomerEmail,
-		BVN:            req.BVN,
-		NIN:            req.NIN,
-		BankCode:       req.BankCode,
-		Permanent:      req.Permanent,
+		CustomerName:     req.CustomerName,
+		CustomerEmail:    req.CustomerEmail,
+		BVN:              req.BVN,
+		NIN:              req.NIN,
+		BankCode:         req.BankCode,
+		Permanent:        req.Permanent,
 	}
 
-	// Create virtual account
 	result, err := h.walletService.CreateVirtualAccount(r.Context(), businessID, domainReq)
 	if err != nil {
 		slog.Error("Failed to create virtual account", "error", err, "business_id", businessID)
@@ -86,13 +95,16 @@ func (h *WalletHandler) HandleCreateVirtualAccount(w http.ResponseWriter, r *htt
 }
 
 // HandleGetWallet handles GET /v1/wallets
-// Gets wallet details for a business
 func (h *WalletHandler) HandleGetWallet(w http.ResponseWriter, r *http.Request) {
-	businessID := r.Context().Value("business_id").(uint)
+	claims, ok := middleware.GetClaimsFromContext(r.Context())
+	if !ok {
+		response.RespondWithError(w, domain.ErrUnauthorized)
+		return
+	}
 
-	wallet, err := h.walletService.GetWallet(r.Context(), businessID)
+	wallet, err := h.walletService.GetWallet(r.Context(), claims.BusinessID)
 	if err != nil {
-		slog.Error("Failed to get wallet", "error", err, "business_id", businessID)
+		slog.Error("Failed to get wallet", "error", err, "business_id", claims.BusinessID)
 		response.RespondWithError(w, err)
 		return
 	}
@@ -101,13 +113,16 @@ func (h *WalletHandler) HandleGetWallet(w http.ResponseWriter, r *http.Request) 
 }
 
 // HandleGetBalance handles GET /v1/wallets/balance
-// Gets current balance for a business wallet
 func (h *WalletHandler) HandleGetBalance(w http.ResponseWriter, r *http.Request) {
-	businessID := r.Context().Value("business_id").(uint)
+	claims, ok := middleware.GetClaimsFromContext(r.Context())
+	if !ok {
+		response.RespondWithError(w, domain.ErrUnauthorized)
+		return
+	}
 
-	balance, err := h.walletService.GetBalance(r.Context(), businessID)
+	balance, err := h.walletService.GetBalance(r.Context(), claims.BusinessID)
 	if err != nil {
-		slog.Error("Failed to get balance", "error", err, "business_id", businessID)
+		slog.Error("Failed to get balance", "error", err, "business_id", claims.BusinessID)
 		response.RespondWithError(w, err)
 		return
 	}
@@ -119,11 +134,13 @@ func (h *WalletHandler) HandleGetBalance(w http.ResponseWriter, r *http.Request)
 }
 
 // HandleGetTransactions handles GET /v1/wallets/transactions
-// Gets transaction history for a business wallet
 func (h *WalletHandler) HandleGetTransactions(w http.ResponseWriter, r *http.Request) {
-	businessID := r.Context().Value("business_id").(uint)
+	claims, ok := middleware.GetClaimsFromContext(r.Context())
+	if !ok {
+		response.RespondWithError(w, domain.ErrUnauthorized)
+		return
+	}
 
-	// Parse pagination parameters
 	page, _ := strconv.Atoi(r.URL.Query().Get("page"))
 	if page <= 0 {
 		page = 1
@@ -133,9 +150,9 @@ func (h *WalletHandler) HandleGetTransactions(w http.ResponseWriter, r *http.Req
 		limit = 10
 	}
 
-	transactions, total, err := h.walletService.GetTransactions(r.Context(), businessID, page, limit)
+	transactions, total, err := h.walletService.GetTransactions(r.Context(), claims.BusinessID, page, limit)
 	if err != nil {
-		slog.Error("Failed to get transactions", "error", err, "business_id", businessID)
+		slog.Error("Failed to get transactions", "error", err, "business_id", claims.BusinessID)
 		response.RespondWithError(w, err)
 		return
 	}
@@ -152,7 +169,6 @@ func (h *WalletHandler) HandleGetTransactions(w http.ResponseWriter, r *http.Req
 // Receives deposit notifications from KoraPay virtual account
 // This is a public endpoint that KoraPay will call
 func (h *WalletHandler) HandleDepositWebhook(w http.ResponseWriter, r *http.Request) {
-	// Read raw body for signature verification (if needed in future)
 	bodyBytes, err := io.ReadAll(r.Body)
 	if err != nil {
 		slog.Error("Failed to read webhook body", "error", err)
@@ -160,130 +176,174 @@ func (h *WalletHandler) HandleDepositWebhook(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	// Parse webhook payload (structure depends on KoraPay webhook format)
-	// For now, we'll create a flexible structure
-	var webhookPayload map[string]interface{}
+	// Verify webhook signature (HMAC-SHA256)
+	signature := r.Header.Get("x-korapay-signature")
+	if h.koraSecretKey != "" && signature != "" {
+		if !h.verifyWebhookSignature(bodyBytes, signature) {
+			slog.Error("Webhook signature verification failed")
+			http.Error(w, "Unauthorized", http.StatusUnauthorized)
+			return
+		}
+	}
+
+	// Parse the full webhook payload
+	var webhookPayload struct {
+		Event string                 `json:"event"`
+		Data  map[string]interface{} `json:"data"`
+	}
 	if err := json.Unmarshal(bodyBytes, &webhookPayload); err != nil {
 		slog.Error("Failed to parse webhook payload", "error", err)
 		http.Error(w, "Bad Request", http.StatusBadRequest)
 		return
 	}
 
-	slog.Info("Received deposit webhook", "payload", webhookPayload)
+	slog.Debug("Received deposit webhook", "event", webhookPayload.Event)
 
-	// Extract account reference from webhook payload
-	// This depends on KoraPay's webhook structure - adjust based on actual format
-	accountRef, ok := webhookPayload["account_reference"].(string)
-	if !ok {
+	// Only process charge.success events
+	if webhookPayload.Event != "charge.success" && webhookPayload.Event != "" {
+		// Acknowledge non-charge events gracefully
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(`{"status":"acknowledged"}`))
+		return
+	}
+
+	data := webhookPayload.Data
+	if data == nil {
+		slog.Error("Missing data in webhook payload")
+		http.Error(w, "Bad Request", http.StatusBadRequest)
+		return
+	}
+
+	// Extract account reference from nested structure:
+	// data.virtual_bank_account_details.virtual_bank_account.account_reference
+	accountRef := ""
+	accountNumber := ""
+	if vbaDetails, ok := data["virtual_bank_account_details"].(map[string]interface{}); ok {
+		if vba, ok := vbaDetails["virtual_bank_account"].(map[string]interface{}); ok {
+			accountRef = parseString(vba["account_reference"])
+			accountNumber = parseString(vba["account_number"])
+		}
+	}
+
+	if accountRef == "" {
 		slog.Error("Missing account_reference in webhook payload")
 		http.Error(w, "Bad Request", http.StatusBadRequest)
 		return
 	}
 
-	// Find business by account reference to get businessID
-	// Note: We'll need to add this method to wallet service or repository
-	// For now, we'll handle it in the service layer
-	
-	// Parse notification from webhook payload
-	notification := h.parseDepositNotification(webhookPayload, accountRef)
+	notification := h.parseKorapayDepositNotification(data, accountRef, accountNumber)
 	if notification == nil {
 		slog.Error("Failed to parse deposit notification from webhook")
 		http.Error(w, "Bad Request", http.StatusBadRequest)
 		return
 	}
 
-	// Record deposit using account reference (service will look up businessID)
 	if err := h.walletService.RecordDepositByAccountReference(r.Context(), accountRef, notification); err != nil {
 		slog.Error("Failed to record deposit from webhook", "error", err, "account_reference", accountRef)
-		// Still return 200 OK to acknowledge receipt (idempotent webhook handling)
-		// Provider will retry if we return error status
-		w.WriteHeader(http.StatusOK)
-		w.Write([]byte(`{"status":"received"}`))
-		return
 	}
 
-	// Return 200 OK to acknowledge receipt
+	// Always return 200 OK to acknowledge receipt
+	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	w.Write([]byte(`{"status":"success"}`))
 }
 
-// parseDepositNotification parses webhook payload into DepositNotification domain model
-// Adjust this based on actual KoraPay webhook structure
-func (h *WalletHandler) parseDepositNotification(payload map[string]interface{}, accountRef string) *domain.DepositNotification {
-	// Extract fields from payload (structure depends on KoraPay webhook format)
-	// This is a placeholder - adjust based on actual webhook structure
-	reference, _ := payload["reference"].(string)
+// verifyWebhookSignature verifies the HMAC-SHA256 signature of a Korapay webhook
+func (h *WalletHandler) verifyWebhookSignature(body []byte, signature string) bool {
+	// Korapay signs only the "data" object
+	var payload struct {
+		Data json.RawMessage `json:"data"`
+	}
+	if err := json.Unmarshal(body, &payload); err != nil {
+		return false
+	}
+
+	mac := hmac.New(sha256.New, []byte(h.koraSecretKey))
+	mac.Write(payload.Data)
+	expectedMAC := hex.EncodeToString(mac.Sum(nil))
+
+	return hmac.Equal([]byte(expectedMAC), []byte(signature))
+}
+
+// parseKorapayDepositNotification parses the data object from a Korapay charge.success webhook
+func (h *WalletHandler) parseKorapayDepositNotification(data map[string]interface{}, accountRef, accountNumber string) *domain.DepositNotification {
+	reference := parseString(data["reference"])
 	if reference == "" {
 		return nil
 	}
 
-	amountFloat, ok := payload["amount"].(float64)
+	amountFloat, ok := data["amount"].(float64)
 	if !ok {
-		// Try as string
-		if amountStr, ok := payload["amount"].(string); ok {
+		if amountStr, ok := data["amount"].(string); ok {
 			if parsed, err := strconv.ParseFloat(amountStr, 64); err == nil {
 				amountFloat = parsed
 			}
 		}
 	}
 
-	amount := int64(amountFloat * 100) // Convert to kobo
+	// Convert to kobo safely using math.Round to avoid float precision issues
+	amount := int64(math.Round(amountFloat * 100))
 
-	status, _ := payload["status"].(string)
+	status := parseString(data["status"])
 	if status == "" {
-		status = "success" // Default to success if not specified
+		status = "success"
 	}
 
-	currency, _ := payload["currency"].(string)
+	currency := parseString(data["currency"])
 	if currency == "" {
 		currency = "NGN"
 	}
 
-	description, _ := payload["description"].(string)
+	description := parseString(data["narration"])
 
-	// Parse processed_at timestamp
 	processedAt := time.Now()
-	if timestampStr, ok := payload["created_at"].(string); ok {
+	if timestampStr := parseString(data["created_at"]); timestampStr != "" {
 		if parsed, err := time.Parse(time.RFC3339, timestampStr); err == nil {
 			processedAt = parsed
 		}
 	}
 
-	// Extract payer bank account if available
+	// Extract payer bank account from nested structure
 	var payerBankAccount *domain.PayerBankAccount
-	if payerData, ok := payload["payer_bank_account"].(map[string]interface{}); ok {
-		payerBankAccount = &domain.PayerBankAccount{
-			AccountNumber: parseString(payerData["account_number"]),
-			AccountName:   parseString(payerData["account_name"]),
-			BankName:      parseString(payerData["bank_name"]),
+	if vbaDetails, ok := data["virtual_bank_account_details"].(map[string]interface{}); ok {
+		if payerData, ok := vbaDetails["payer_bank_account"].(map[string]interface{}); ok {
+			payerBankAccount = &domain.PayerBankAccount{
+				AccountNumber: parseString(payerData["account_number"]),
+				AccountName:   parseString(payerData["account_name"]),
+				BankName:      parseString(payerData["bank_name"]),
+			}
 		}
 	}
 
 	return &domain.DepositNotification{
-		Provider:          domain.ProviderKorapay,
-		Reference:         reference,
-		AccountReference:  accountRef,
-		Amount:            amount,
-		Currency:          currency,
-		Status:            status,
-		Description:       description,
-		ProcessedAt:       processedAt,
-		PayerBankAccount:  payerBankAccount,
+		Provider:         domain.ProviderKorapay,
+		Reference:        reference,
+		AccountReference: accountRef,
+		AccountNumber:    accountNumber,
+		Amount:           amount,
+		Currency:         currency,
+		Status:           status,
+		Description:      description,
+		ProcessedAt:      processedAt,
+		PayerBankAccount: payerBankAccount,
 	}
 }
 
 // HandleSandboxCredit handles POST /v1/wallets/sandbox/credit
-// Credits a virtual account in sandbox environment (testing only)
-// This endpoint should only work in sandbox/test mode
 func (h *WalletHandler) HandleSandboxCredit(w http.ResponseWriter, r *http.Request) {
-	// Check if in sandbox mode (only allow in test/sandbox environment)
 	if !h.isSandboxMode() {
 		slog.Warn("Sandbox credit attempted in non-sandbox environment")
 		response.RespondWithError(w, domain.ErrForbidden)
 		return
 	}
 
-	businessID := r.Context().Value("business_id").(uint)
+	claims, ok := middleware.GetClaimsFromContext(r.Context())
+	if !ok {
+		response.RespondWithError(w, domain.ErrUnauthorized)
+		return
+	}
+	businessID := claims.BusinessID
 
 	var req request.SandboxCreditRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -298,12 +358,10 @@ func (h *WalletHandler) HandleSandboxCredit(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	// Set default currency
 	if req.Currency == "" {
 		req.Currency = "NGN"
 	}
 
-	// Get wallet to verify account belongs to business
 	wallet, err := h.walletService.GetWallet(r.Context(), businessID)
 	if err != nil {
 		slog.Error("Wallet not found for sandbox credit", "error", err, "business_id", businessID)
@@ -311,7 +369,6 @@ func (h *WalletHandler) HandleSandboxCredit(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	// Verify account number matches
 	if wallet.VirtualAccountNumber != req.AccountNumber {
 		slog.Error("Account number mismatch for sandbox credit",
 			"provided", req.AccountNumber,
@@ -321,14 +378,13 @@ func (h *WalletHandler) HandleSandboxCredit(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	// Call KoraPay sandbox credit API
 	sandboxReq := korapay.VirtualAccountSandboxCreditRequest{
 		AccountNumber: req.AccountNumber,
-		Amount:        req.Amount, // Amount in main currency unit (e.g., NGN 100)
+		Amount:        req.Amount,
 		Currency:      req.Currency,
 	}
 
-	koraResponse, err := h.koraClient.SandboxCreditVirtualAccount(sandboxReq)
+	koraResponse, err := h.koraClient.SandboxCreditVirtualAccount(r.Context(), sandboxReq)
 	if err != nil {
 		slog.Error("KoraPay sandbox credit failed", "error", err, "account_number", req.AccountNumber)
 		response.RespondWithError(w, err)
@@ -341,10 +397,9 @@ func (h *WalletHandler) HandleSandboxCredit(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	// Convert amount to kobo for deposit notification
-	amountInKobo := int64(req.Amount * 100)
+	// Convert amount to kobo safely
+	amountInKobo := int64(req.Amount) * 100
 
-	// Manually create deposit notification (simulating webhook)
 	notification := &domain.DepositNotification{
 		Provider:         domain.ProviderKorapay,
 		Reference:        "SANDBOX-CREDIT-" + strconv.FormatInt(time.Now().Unix(), 10),
@@ -357,10 +412,8 @@ func (h *WalletHandler) HandleSandboxCredit(w http.ResponseWriter, r *http.Reque
 		ProcessedAt:      time.Now(),
 	}
 
-	// Record deposit in wallet (this will update balance)
 	if err := h.walletService.RecordDeposit(r.Context(), businessID, notification); err != nil {
 		slog.Error("Failed to record sandbox deposit", "error", err, "business_id", businessID)
-		// Don't fail the response - credit was successful, just recording failed
 		response.RespondWithJSON(w, http.StatusOK, map[string]interface{}{
 			"status":  true,
 			"message": "Virtual bank account credited successfully (deposit recording may have failed)",
@@ -375,9 +428,12 @@ func (h *WalletHandler) HandleSandboxCredit(w http.ResponseWriter, r *http.Reque
 }
 
 // isSandboxMode checks if we're in sandbox/test mode
+// Korapay uses the same base URL for sandbox and live; the API key determines the environment.
+// Test keys start with "sk_test_" while live keys start with "sk_live_"
 func (h *WalletHandler) isSandboxMode() bool {
-	// Check if KoraPay base URL contains sandbox/test indicators
-	// This is a simple check - in production, use environment variables or config flags
+	if strings.HasPrefix(h.koraSecretKey, "sk_test_") || strings.HasPrefix(h.koraSecretKey, "pk_test_") {
+		return true
+	}
 	return strings.Contains(strings.ToLower(h.koraBaseURL), "sandbox") ||
 		strings.Contains(strings.ToLower(h.koraBaseURL), "test") ||
 		strings.Contains(strings.ToLower(h.koraBaseURL), "staging")
@@ -396,7 +452,6 @@ func parseString(v interface{}) string {
 // ============================================================================
 
 // HandleCreateAccountHolder handles POST /v1/wallets/account-holders
-// Creates an account holder for KYC onboarding
 func (h *WalletHandler) HandleCreateAccountHolder(w http.ResponseWriter, r *http.Request) {
 	var req request.CreateAccountHolderRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -411,7 +466,6 @@ func (h *WalletHandler) HandleCreateAccountHolder(w http.ResponseWriter, r *http
 		return
 	}
 
-	// Convert request to domain model
 	domainReq := &domain.CreateAccountHolderRequest{
 		FirstName:      req.FirstName,
 		LastName:       req.LastName,
@@ -488,7 +542,6 @@ func (h *WalletHandler) HandleCreateAccountHolder(w http.ResponseWriter, r *http
 		}
 	}
 
-	// Call service (service handles provider abstraction)
 	result, err := h.accountHolderService.CreateAccountHolder(r.Context(), domainReq)
 	if err != nil {
 		slog.Error("Failed to create account holder", "error", err)
@@ -500,7 +553,6 @@ func (h *WalletHandler) HandleCreateAccountHolder(w http.ResponseWriter, r *http
 }
 
 // HandleGetAccountHolderDetails handles GET /v1/wallets/account-holders/{reference}/details
-// Retrieves account holder details by reference
 func (h *WalletHandler) HandleGetAccountHolderDetails(w http.ResponseWriter, r *http.Request) {
 	reference := chi.URLParam(r, "reference")
 	if reference == "" {
@@ -508,7 +560,6 @@ func (h *WalletHandler) HandleGetAccountHolderDetails(w http.ResponseWriter, r *
 		return
 	}
 
-	// Call service (service handles provider abstraction)
 	details, err := h.accountHolderService.GetAccountHolderDetails(r.Context(), reference)
 	if err != nil {
 		slog.Error("Failed to get account holder details", "error", err, "reference", reference)
@@ -520,7 +571,6 @@ func (h *WalletHandler) HandleGetAccountHolderDetails(w http.ResponseWriter, r *
 }
 
 // HandleUpdateAccountHolderKYC handles PATCH /v1/wallets/account-holders/{reference}/update-kyc
-// Updates account holder KYC information
 func (h *WalletHandler) HandleUpdateAccountHolderKYC(w http.ResponseWriter, r *http.Request) {
 	reference := chi.URLParam(r, "reference")
 	if reference == "" {
@@ -541,7 +591,6 @@ func (h *WalletHandler) HandleUpdateAccountHolderKYC(w http.ResponseWriter, r *h
 		return
 	}
 
-	// Convert request to domain model
 	domainReq := &domain.UpdateAccountHolderKYCRequest{
 		FirstName:      req.FirstName,
 		LastName:       req.LastName,
@@ -591,7 +640,6 @@ func (h *WalletHandler) HandleUpdateAccountHolderKYC(w http.ResponseWriter, r *h
 		}
 	}
 
-	// Call service (service handles provider abstraction)
 	result, err := h.accountHolderService.UpdateAccountHolderKYC(r.Context(), reference, domainReq)
 	if err != nil {
 		slog.Error("Failed to update account holder KYC", "error", err, "reference", reference)
@@ -603,7 +651,6 @@ func (h *WalletHandler) HandleUpdateAccountHolderKYC(w http.ResponseWriter, r *h
 }
 
 // HandleGenerateFileUploadURL handles POST /v1/wallets/files/generate-upload-url
-// Generates a pre-signed S3 URL for file uploads (KYC documents)
 func (h *WalletHandler) HandleGenerateFileUploadURL(w http.ResponseWriter, r *http.Request) {
 	var req request.GenerateFileUploadURLRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -618,14 +665,12 @@ func (h *WalletHandler) HandleGenerateFileUploadURL(w http.ResponseWriter, r *ht
 		return
 	}
 
-	// Convert request to domain model
 	domainReq := &domain.GenerateFileUploadURLRequest{
 		Reference:   req.Reference,
 		Purpose:     req.Purpose,
 		ContentType: req.ContentType,
 	}
 
-	// Call service (service handles provider abstraction)
 	result, err := h.accountHolderService.GenerateFileUploadURL(r.Context(), domainReq)
 	if err != nil {
 		slog.Error("Failed to generate file upload URL", "error", err)

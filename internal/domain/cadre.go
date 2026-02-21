@@ -3,20 +3,20 @@ package domain
 
 type Cadre struct {
 	Model
-	BusinessID uint   `gorm:"index"`
-	Name       string `gorm:"size:255"`
+	BusinessID uint   `gorm:"index" json:"business_id"`
+	Name       string `gorm:"size:255" json:"name"`
 
 	// Relationships
-	EarningComponents []EarningComponent `gorm:"foreignKey:CadreID"`
-	DeductionRules    []DeductionRule    `gorm:"foreignKey:CadreID"`
-	Employees         []Employee         `gorm:"foreignKey:CadreID"`
+	EarningComponents []EarningComponent `gorm:"foreignKey:CadreID" json:"earning_components"`
+	DeductionRules    []DeductionRule    `gorm:"foreignKey:CadreID" json:"deduction_rules,omitempty"`
+	Employees         []Employee         `gorm:"foreignKey:CadreID" json:"employees,omitempty"`
 }
 
 type EarningComponent struct {
 	Model
-	CadreID uint   `gorm:"index"`
-	Name    string `gorm:"size:255"`
-	Amount  int64  `gorm:""` // Use int64 for monetary values to avoid float inaccuracies
+	CadreID uint   `gorm:"index" json:"cadre_id"`
+	Name    string `gorm:"size:255" json:"name"`
+	Amount  int64  `gorm:"" json:"amount"`
 }
 
 type DeductionRuleType string
@@ -35,10 +35,10 @@ const (
 
 type DeductionRule struct {
 	Model
-	BusinessID       uint              `gorm:"index"`
-	CadreID          uint              `gorm:"index"` // Optional: can be linked to specific cadre or global
-	Name             string            `gorm:"size:255"`
-	Type             DeductionRuleType `gorm:"type:varchar(20)"`
-	Value            float64           `gorm:""` // Percentage (e.g., 7.5) or Flat Amount in smallest currency unit
-	CalculationBasis CalculationBasis  `gorm:"type:varchar(20)"`
+	BusinessID       uint              `gorm:"index" json:"business_id"`
+	CadreID          uint              `gorm:"index" json:"cadre_id,omitempty"`
+	Name             string            `gorm:"size:255" json:"name"`
+	Type             DeductionRuleType `gorm:"type:varchar(20)" json:"type"`
+	Value            float64           `gorm:"" json:"value"`
+	CalculationBasis CalculationBasis  `gorm:"type:varchar(20)" json:"calculation_basis"`
 }

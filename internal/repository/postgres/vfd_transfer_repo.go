@@ -4,6 +4,7 @@ import (
 	"context"
 	"payflow/internal/domain"
 	"payflow/internal/repository"
+	"time"
 
 	"gorm.io/gorm"
 )
@@ -32,7 +33,7 @@ type TransferRecord struct {
 	Status          string  `gorm:"size:20;default:'pending'"`
 	VFDStatus       string  `gorm:"size:10"`
 	VFDMessage      string  `gorm:"size:255"`
-	ProcessedAt     *gorm.Model
+	ProcessedAt     *time.Time
 	ProcessingError *string `gorm:"size:1000"`
 }
 
@@ -206,7 +207,7 @@ func (t *TransferRecord) ToDomain() *domain.TransferRecord {
 
 	// Handle processed at
 	if t.ProcessedAt != nil {
-		transfer.ProcessedAt = &t.ProcessedAt.CreatedAt
+		transfer.ProcessedAt = t.ProcessedAt
 	}
 
 	return transfer
@@ -247,7 +248,7 @@ func TransferRecordFromDomain(t *domain.TransferRecord) *TransferRecord {
 
 	// Handle processed at
 	if t.ProcessedAt != nil {
-		model.ProcessedAt = &gorm.Model{CreatedAt: *t.ProcessedAt}
+		model.ProcessedAt = t.ProcessedAt
 	}
 
 	return model

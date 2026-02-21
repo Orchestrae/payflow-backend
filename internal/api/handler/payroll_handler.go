@@ -9,7 +9,6 @@ import (
 	"payflow/internal/api/response"
 	"payflow/internal/domain"
 	"payflow/internal/service"
-	"payflow/pkg/utils"
 	"strconv"
 	"time"
 
@@ -180,23 +179,25 @@ func (h *PayrollHandler) ApprovePayrollRun(w http.ResponseWriter, r *http.Reques
 }
 
 func (h *PayrollHandler) RejectPayrollRun(w http.ResponseWriter, r *http.Request) {
-	// Get runID from URL
-	runIDStr := chi.URLParam(r, "runID")
-	runID, _ := strconv.ParseUint(runIDStr, 10, 32)
+	runID, err := strconv.ParseUint(chi.URLParam(r, "runID"), 10, 32)
+	if err != nil {
+		response.RespondWithError(w, domain.ErrValidationFailed)
+		return
+	}
 
-	// Get user claims from context
-	claims := r.Context().Value(middleware.UserClaimsKey).(*utils.Claims)
-	rejecterID, _ := strconv.ParseUint(claims.UserID, 10, 32)
+	claims, ok := middleware.GetClaimsFromContext(r.Context())
+	if !ok {
+		response.RespondWithError(w, domain.ErrInternalServer)
+		return
+	}
 
-	// Decode request body
 	var req request.RejectPayrollRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		response.RespondWithError(w, domain.ErrValidationFailed)
 		return
 	}
 
-	// Call the service method
-	rejectedRun, err := h.payrollService.RejectPayrollRun(r.Context(), uint(runID), uint(rejecterID), req.Reason)
+	rejectedRun, err := h.payrollService.RejectPayrollRun(r.Context(), uint(runID), claims.UserID, req.Reason)
 	if err != nil {
 		response.RespondWithError(w, err)
 		return

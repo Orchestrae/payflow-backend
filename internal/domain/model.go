@@ -10,8 +10,8 @@ import (
 // Use this as an embedded struct in all domain models
 // to get ID, CreatedAt, UpdatedAt, DeletedAt
 type Model struct {
-	ID        uint           `gorm:"primaryKey;autoIncrement"`
-	CreatedAt time.Time      `gorm:"autoCreateTime"`
-	UpdatedAt time.Time      `gorm:"autoUpdateTime"`
-	DeletedAt gorm.DeletedAt `gorm:"index"`
+	ID        uint           `gorm:"primaryKey;autoIncrement" json:"id"`
+	CreatedAt time.Time      `gorm:"autoCreateTime" json:"created_at"`
+	UpdatedAt time.Time      `gorm:"autoUpdateTime" json:"updated_at"`
+	DeletedAt gorm.DeletedAt `gorm:"index" json:"deleted_at,omitempty"`
 }

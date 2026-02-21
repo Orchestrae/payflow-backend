@@ -3,6 +3,7 @@ package korapay
 import (
 	"context"
 	"fmt"
+	"math"
 	"strconv"
 	"time"
 
@@ -53,12 +54,19 @@ func (p *korapayVirtualAccountProvider) CreateVirtualAccount(ctx context.Context
 		bankCode = "000" // Default to sandbox/test bank code
 	}
 
+	// Korapay requires Permanent to be true by default.
+	// Only use the caller's value if they explicitly set it; otherwise default to true.
+	permanent := true
+	if req.Permanent {
+		permanent = req.Permanent
+	}
+
 	// Build the Korapay request
 	koraRequest := VirtualAccountCreateRequest{
-		AccountName:     req.AccountName,
+		AccountName:      req.AccountName,
 		AccountReference: accountReference,
-		Permanent:       req.Permanent,
-		BankCode:        bankCode,
+		Permanent:        permanent,
+		BankCode:         bankCode,
 		Customer: VirtualAccountCustomer{
 			Name:  req.CustomerName,
 			Email: req.CustomerEmail,
@@ -69,13 +77,8 @@ func (p *korapayVirtualAccountProvider) CreateVirtualAccount(ctx context.Context
 		},
 	}
 
-	// If Permanent not set, default to true (Kora requires this)
-	if !koraRequest.Permanent {
-		koraRequest.Permanent = true
-	}
-
 	// Call Korapay API
-	koraResponse, err := p.client.CreateVirtualAccount(koraRequest)
+	koraResponse, err := p.client.CreateVirtualAccount(ctx, koraRequest)
 	if err != nil {
 		return nil, fmt.Errorf("korapay create virtual account failed: %w", err)
 	}
@@ -88,7 +91,7 @@ func (p *korapayVirtualAccountProvider) CreateVirtualAccount(ctx context.Context
 // Retrieves virtual account details by reference.
 func (p *korapayVirtualAccountProvider) GetVirtualAccount(ctx context.Context, accountReference string) (*domain.VirtualAccountResult, error) {
 	// Call Korapay API
-	koraResponse, err := p.client.GetVirtualAccount(accountReference)
+	koraResponse, err := p.client.GetVirtualAccount(ctx, accountReference)
 	if err != nil {
 		return nil, fmt.Errorf("korapay get virtual account failed: %w", err)
 	}
@@ -196,7 +199,7 @@ func (p *korapayVirtualAccountProvider) ListTransactions(ctx context.Context, ac
 	}
 
 	// Call Korapay API
-	koraResponse, err := p.client.GetVirtualAccountTransactions(accountNumber, startDate, endDate, page, limit)
+	koraResponse, err := p.client.GetVirtualAccountTransactions(ctx, accountNumber, startDate, endDate, page, limit)
 	if err != nil {
 		return nil, fmt.Errorf("korapay get virtual account transactions failed: %w", err)
 	}
@@ -287,7 +290,8 @@ func (p *korapayVirtualAccountProvider) parseAmountToKobo(amountStr string) (int
 		return 0, fmt.Errorf("invalid amount format: %s", amountStr)
 	}
 
-	// Convert to kobo (multiply by 100)
-	amountInKobo := int64(amountFloat * 100)
+	// Convert to kobo (multiply by 100) and round to avoid float truncation issues
+	// e.g., 19.99 * 100 = 1998.9999... should become 1999, not 1998
+	amountInKobo := int64(math.Round(amountFloat * 100))
 	return amountInKobo, nil
 }

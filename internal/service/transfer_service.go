@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"fmt"
 	"log/slog"
+	"math"
 	"strconv"
 	"time"
 
@@ -532,25 +533,25 @@ func (s *transferService) generateReference(businessID uint) string {
 	return fmt.Sprintf("TRF-%d-%d-%s", businessID, timestamp, randomPart)
 }
 
-// validateTransferAmount validates the transfer amount against configured limits
+// validateTransferAmount validates the transfer amount (in NGN) against configured limits (also in NGN).
 func (s *transferService) validateTransferAmount(amountStr string) error {
-	// Parse amount as integer (assuming it's in main currency units like NGN)
+	// Parse amount in NGN (main currency unit). May contain decimals like "999.99".
 	amount, err := strconv.ParseInt(amountStr, 10, 64)
 	if err != nil {
-		// Try parsing as float in case it has decimals
+		// Try parsing as float in case it has decimals (e.g., "999.99")
 		amountFloat, err := strconv.ParseFloat(amountStr, 64)
 		if err != nil {
 			return fmt.Errorf("invalid amount format: %s", amountStr)
 		}
-		amount = int64(amountFloat)
+		amount = int64(math.Round(amountFloat))
 	}
 
-	// Check minimum amount
+	// Check minimum amount (config limits are in NGN)
 	if s.config.MinAmount > 0 && amount < s.config.MinAmount {
 		return domain.NewTransferAmountBelowMinError(amountStr, s.config.MinAmount)
 	}
 
-	// Check maximum amount
+	// Check maximum amount (config limits are in NGN)
 	if s.config.MaxAmount > 0 && amount > s.config.MaxAmount {
 		return domain.NewTransferAmountAboveMaxError(amountStr, s.config.MaxAmount)
 	}
@@ -558,22 +559,19 @@ func (s *transferService) validateTransferAmount(amountStr string) error {
 	return nil
 }
 
-// parseAmountToKobo parses an amount string (e.g., "1000" or "1000.00") to int64 (kobo).
-// Assumes input is in main currency units (NGN) and converts to smallest unit (kobo).
+// parseAmountToKobo parses an amount string in NGN (e.g., "1000" or "999.99") to int64 kobo.
+// Input is in main currency units (NGN) and output is in smallest unit (kobo).
+// For example: "999.99" -> 99999 kobo, "1000" -> 100000 kobo.
 func (s *transferService) parseAmountToKobo(amountStr string) (int64, error) {
-	// Try parsing as integer first (assuming it's in main currency units)
-	amount, err := strconv.ParseInt(amountStr, 10, 64)
+	// Always parse as float to handle both "1000" and "999.99" uniformly
+	amountFloat, err := strconv.ParseFloat(amountStr, 64)
 	if err != nil {
-		// Try parsing as float in case it has decimals (e.g., "1000.00")
-		amountFloat, err := strconv.ParseFloat(amountStr, 64)
-		if err != nil {
-			return 0, fmt.Errorf("invalid amount format: %s", amountStr)
-		}
-		amount = int64(amountFloat)
+		return 0, fmt.Errorf("invalid amount format: %s", amountStr)
 	}
 
-	// Convert to kobo (multiply by 100)
-	amountInKobo := amount * 100
+	// Convert to kobo (multiply by 100) and round to avoid float truncation.
+	// math.Round ensures "999.99" * 100 = 99999.0 instead of truncating to 99998.
+	amountInKobo := int64(math.Round(amountFloat * 100))
 	return amountInKobo, nil
 }
 

@@ -4,6 +4,7 @@ package response
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"payflow/internal/domain"
 )
@@ -47,9 +48,24 @@ func RespondWithError(w http.ResponseWriter, err error) {
 	case errors.Is(err, domain.ErrValidationFailed):
 		status = http.StatusBadRequest
 		resp.Error = err.Error()
+	case errors.Is(err, domain.ErrPaymentGatewayFailed):
+		status = http.StatusBadGateway
+		resp.Error = err.Error()
 	default:
+		var transferAmountErr *domain.TransferAmountError
+		if errors.As(err, &transferAmountErr) {
+			status = http.StatusBadRequest
+			resp.Error = transferAmountErr.Error()
+			resp.Details = map[string]string{
+				"amount":     transferAmountErr.Amount,
+				"min_amount": fmt.Sprintf("%d", transferAmountErr.MinAmount),
+				"max_amount": fmt.Sprintf("%d", transferAmountErr.MaxAmount),
+			}
+			RespondWithJSON(w, status, resp)
+			return
+		}
 		// Log the full internal error for debugging, but don't expose it to the client.
-		// log.Error().Err(err).Msg("Responding with internal server error")
+		fmt.Printf("ERROR [500]: %v\n", err)
 	}
 
 	RespondWithJSON(w, status, resp)

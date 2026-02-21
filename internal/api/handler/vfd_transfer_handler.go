@@ -3,12 +3,14 @@ package handler
 import (
 	"encoding/json"
 	"net/http"
+	"payflow/internal/api/middleware"
 	"payflow/internal/api/request"
 	"payflow/internal/api/response"
 	"payflow/internal/domain"
 	"payflow/internal/service"
 	"strconv"
 
+	"github.com/go-chi/chi/v5"
 	"github.com/go-playground/validator/v10"
 )
 
@@ -88,14 +90,13 @@ func (h *VFDTransferHandler) HandleInitiateTransfer(w http.ResponseWriter, r *ht
 		return
 	}
 
-	// Get business ID from context (set by auth middleware)
-	businessID, exists := r.Context().Value("business_id").(uint)
-	if !exists {
+	claims, ok := middleware.GetClaimsFromContext(r.Context())
+	if !ok {
 		response.RespondWithError(w, domain.ErrUnauthorized)
 		return
 	}
+	businessID := claims.BusinessID
 
-	// Convert request to domain model
 	transferReq := &domain.TransferRequest{
 		FromAccount:           req.FromAccount,
 		UniqueSenderAccountId: req.UniqueSenderAccountId,
@@ -128,12 +129,12 @@ func (h *VFDTransferHandler) HandleInitiateTransfer(w http.ResponseWriter, r *ht
 
 // HandleListTransfers handles listing transfer records
 func (h *VFDTransferHandler) HandleListTransfers(w http.ResponseWriter, r *http.Request) {
-	// Get business ID from context
-	businessID, exists := r.Context().Value("business_id").(uint)
-	if !exists {
+	claims, ok := middleware.GetClaimsFromContext(r.Context())
+	if !ok {
 		response.RespondWithError(w, domain.ErrUnauthorized)
 		return
 	}
+	businessID := claims.BusinessID
 
 	// Get pagination parameters
 	pageStr := r.URL.Query().Get("page")
@@ -207,9 +208,7 @@ func (h *VFDTransferHandler) HandleListTransfers(w http.ResponseWriter, r *http.
 
 // HandleGetTransferByID handles getting a specific transfer by ID
 func (h *VFDTransferHandler) HandleGetTransferByID(w http.ResponseWriter, r *http.Request) {
-	// Extract ID from URL path - this would need to be handled by the router
-	// For now, we'll get it from query params
-	idStr := r.URL.Query().Get("id")
+	idStr := chi.URLParam(r, "id")
 	if idStr == "" {
 		response.RespondWithError(w, domain.ErrValidationFailed)
 		return

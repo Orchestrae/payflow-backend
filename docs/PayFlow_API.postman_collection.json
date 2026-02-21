@@ -1,0 +1,1610 @@
+{
+	"info": {
+		"_postman_id": "payflow-api-collection",
+		"name": "PayFlow API",
+		"description": "Comprehensive API collection for PayFlow - a payroll management platform with employee management, cadre/salary structures, deduction rules, payroll runs, wallet management, and transfer capabilities.",
+		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+	},
+	"variable": [
+		{
+			"key": "base_url",
+			"value": "http://localhost:8080",
+			"type": "string"
+		},
+		{
+			"key": "token",
+			"value": "",
+			"type": "string"
+		},
+		{
+			"key": "business_id",
+			"value": "",
+			"type": "string"
+		},
+		{
+			"key": "employee_id",
+			"value": "",
+			"type": "string"
+		},
+		{
+			"key": "cadre_id",
+			"value": "",
+			"type": "string"
+		},
+		{
+			"key": "payroll_run_id",
+			"value": "",
+			"type": "string"
+		},
+		{
+			"key": "deduction_rule_id",
+			"value": "",
+			"type": "string"
+		},
+		{
+			"key": "transfer_id",
+			"value": "",
+			"type": "string"
+		},
+		{
+			"key": "vfd_transfer_id",
+			"value": "",
+			"type": "string"
+		},
+		{
+			"key": "webhook_id",
+			"value": "",
+			"type": "string"
+		},
+		{
+			"key": "account_holder_reference",
+			"value": "",
+			"type": "string"
+		}
+	],
+	"item": [
+		{
+			"name": "Health",
+			"item": [
+				{
+					"name": "Health Check",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/health",
+							"host": ["{{base_url}}"],
+							"path": ["health"]
+						},
+						"description": "Check the health status of the server and database connection. No authentication required."
+					},
+					"response": []
+				}
+			],
+			"description": "Server health check endpoints."
+		},
+		{
+			"name": "Auth",
+			"item": [
+				{
+					"name": "Register Business",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"if (pm.response.code === 201 || pm.response.code === 200) {",
+									"    var jsonData = pm.response.json();",
+									"    if (jsonData.business && jsonData.business.id) {",
+									"        pm.collectionVariables.set(\"business_id\", jsonData.business.id);",
+									"        console.log(\"Saved business_id: \" + jsonData.business.id);",
+									"    } else if (jsonData.data && jsonData.data.id) {",
+									"        pm.collectionVariables.set(\"business_id\", jsonData.data.id);",
+									"        console.log(\"Saved business_id: \" + jsonData.data.id);",
+									"    } else if (jsonData.id) {",
+									"        pm.collectionVariables.set(\"business_id\", jsonData.id);",
+									"        console.log(\"Saved business_id: \" + jsonData.id);",
+									"    }",
+									"    if (jsonData.token) {",
+									"        pm.collectionVariables.set(\"token\", jsonData.token);",
+									"        console.log(\"Saved token from register response\");",
+									"    }",
+									"}"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"business_name\": \"Acme Corp\",\n  \"email\": \"admin@acmecorp.com\",\n  \"password\": \"SecurePass123\",\n  \"rc_number\": \"RC123456\",\n  \"incorporation_date\": \"2020-01-15T00:00:00Z\",\n  \"director_bvn\": \"12345678901\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/v1/auth/register",
+							"host": ["{{base_url}}"],
+							"path": ["v1", "auth", "register"]
+						},
+						"description": "Register a new business account. Creates a business entity and an admin user. No authentication required."
+					},
+					"response": []
+				},
+				{
+					"name": "Login",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"if (pm.response.code === 200) {",
+									"    var jsonData = pm.response.json();",
+									"    if (jsonData.token) {",
+									"        pm.collectionVariables.set(\"token\", jsonData.token);",
+									"        console.log(\"Token saved successfully\");",
+									"    } else if (jsonData.data && jsonData.data.token) {",
+									"        pm.collectionVariables.set(\"token\", jsonData.data.token);",
+									"        console.log(\"Token saved successfully from data.token\");",
+									"    }",
+									"}"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"email\": \"admin@acmecorp.com\",\n  \"password\": \"SecurePass123\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/v1/auth/login",
+							"host": ["{{base_url}}"],
+							"path": ["v1", "auth", "login"]
+						},
+						"description": "Authenticate with email and password. Returns a JWT token that is automatically saved to the collection variable for use in subsequent requests."
+					},
+					"response": []
+				}
+			],
+			"description": "Authentication endpoints for business registration and login."
+		},
+		{
+			"name": "Deduction Rules",
+			"item": [
+				{
+					"name": "Create Deduction Rule",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"if (pm.response.code === 201 || pm.response.code === 200) {",
+									"    var jsonData = pm.response.json();",
+									"    if (jsonData.id) {",
+									"        pm.collectionVariables.set(\"deduction_rule_id\", jsonData.id);",
+									"        console.log(\"Saved deduction_rule_id: \" + jsonData.id);",
+									"    } else if (jsonData.data && jsonData.data.id) {",
+									"        pm.collectionVariables.set(\"deduction_rule_id\", jsonData.data.id);",
+									"        console.log(\"Saved deduction_rule_id: \" + jsonData.data.id);",
+									"    }",
+									"}"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							},
+							{
+								"key": "Authorization",
+								"value": "Bearer {{token}}"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"name\": \"Tax\",\n  \"type\": \"percentage\",\n  \"value\": 7.5,\n  \"calculation_basis\": \"gross_pay\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/v1/deduction-rules",
+							"host": ["{{base_url}}"],
+							"path": ["v1", "deduction-rules"]
+						},
+						"description": "Create a new deduction rule. Type can be 'percentage' or 'flat'. Calculation basis can be 'gross_pay' or 'basic_pay'. Admin role required."
+					},
+					"response": []
+				},
+				{
+					"name": "List Deduction Rules",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							},
+							{
+								"key": "Authorization",
+								"value": "Bearer {{token}}"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/v1/deduction-rules",
+							"host": ["{{base_url}}"],
+							"path": ["v1", "deduction-rules"]
+						},
+						"description": "List all deduction rules for the authenticated business. Admin role required."
+					},
+					"response": []
+				},
+				{
+					"name": "Update Deduction Rule",
+					"request": {
+						"method": "PUT",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							},
+							{
+								"key": "Authorization",
+								"value": "Bearer {{token}}"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"name\": \"Income Tax\",\n  \"type\": \"percentage\",\n  \"value\": 10.0,\n  \"calculation_basis\": \"gross_pay\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/v1/deduction-rules/{{deduction_rule_id}}",
+							"host": ["{{base_url}}"],
+							"path": ["v1", "deduction-rules", "{{deduction_rule_id}}"]
+						},
+						"description": "Update an existing deduction rule by ID. Admin role required."
+					},
+					"response": []
+				},
+				{
+					"name": "Delete Deduction Rule",
+					"request": {
+						"method": "DELETE",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							},
+							{
+								"key": "Authorization",
+								"value": "Bearer {{token}}"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/v1/deduction-rules/{{deduction_rule_id}}",
+							"host": ["{{base_url}}"],
+							"path": ["v1", "deduction-rules", "{{deduction_rule_id}}"]
+						},
+						"description": "Delete a deduction rule by ID. Admin role required."
+					},
+					"response": []
+				}
+			],
+			"description": "Manage deduction rules (tax, pension, etc.) that can be applied to cadres."
+		},
+		{
+			"name": "Cadres",
+			"item": [
+				{
+					"name": "Create Cadre",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"if (pm.response.code === 201 || pm.response.code === 200) {",
+									"    var jsonData = pm.response.json();",
+									"    if (jsonData.id) {",
+									"        pm.collectionVariables.set(\"cadre_id\", jsonData.id);",
+									"        console.log(\"Saved cadre_id: \" + jsonData.id);",
+									"    } else if (jsonData.data && jsonData.data.id) {",
+									"        pm.collectionVariables.set(\"cadre_id\", jsonData.data.id);",
+									"        console.log(\"Saved cadre_id: \" + jsonData.data.id);",
+									"    }",
+									"}"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							},
+							{
+								"key": "Authorization",
+								"value": "Bearer {{token}}"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"name\": \"Senior Engineer\",\n  \"earning_components\": [\n    {\n      \"name\": \"Basic Salary\",\n      \"amount\": 500000\n    },\n    {\n      \"name\": \"Housing Allowance\",\n      \"amount\": 150000\n    },\n    {\n      \"name\": \"Transport Allowance\",\n      \"amount\": 50000\n    }\n  ],\n  \"deduction_rule_ids\": []\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/v1/cadres",
+							"host": ["{{base_url}}"],
+							"path": ["v1", "cadres"]
+						},
+						"description": "Create a new cadre (salary structure) with earning components. Optionally attach deduction rule IDs. Admin or Operator role required."
+					},
+					"response": []
+				},
+				{
+					"name": "List Cadres",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							},
+							{
+								"key": "Authorization",
+								"value": "Bearer {{token}}"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/v1/cadres",
+							"host": ["{{base_url}}"],
+							"path": ["v1", "cadres"]
+						},
+						"description": "List all cadres for the authenticated business. Admin or Operator role required."
+					},
+					"response": []
+				},
+				{
+					"name": "Get Cadre by ID",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							},
+							{
+								"key": "Authorization",
+								"value": "Bearer {{token}}"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/v1/cadres/{{cadre_id}}",
+							"host": ["{{base_url}}"],
+							"path": ["v1", "cadres", "{{cadre_id}}"]
+						},
+						"description": "Get a specific cadre by its ID, including its earning components and deduction rules. Admin or Operator role required."
+					},
+					"response": []
+				},
+				{
+					"name": "Update Cadre",
+					"request": {
+						"method": "PUT",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							},
+							{
+								"key": "Authorization",
+								"value": "Bearer {{token}}"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"name\": \"Senior Engineer (Updated)\",\n  \"earning_components\": [\n    {\n      \"name\": \"Basic Salary\",\n      \"amount\": 600000\n    },\n    {\n      \"name\": \"Housing Allowance\",\n      \"amount\": 180000\n    },\n    {\n      \"name\": \"Transport Allowance\",\n      \"amount\": 60000\n    },\n    {\n      \"name\": \"Meal Allowance\",\n      \"amount\": 30000\n    }\n  ],\n  \"deduction_rule_ids\": []\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/v1/cadres/{{cadre_id}}",
+							"host": ["{{base_url}}"],
+							"path": ["v1", "cadres", "{{cadre_id}}"]
+						},
+						"description": "Update an existing cadre by ID. Replaces earning components and deduction rule associations. Admin or Operator role required."
+					},
+					"response": []
+				},
+				{
+					"name": "Delete Cadre",
+					"request": {
+						"method": "DELETE",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							},
+							{
+								"key": "Authorization",
+								"value": "Bearer {{token}}"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/v1/cadres/{{cadre_id}}",
+							"host": ["{{base_url}}"],
+							"path": ["v1", "cadres", "{{cadre_id}}"]
+						},
+						"description": "Delete a cadre by ID. Admin or Operator role required."
+					},
+					"response": []
+				}
+			],
+			"description": "Manage cadres (salary structures/grades) that define earning components and deduction rules for employees."
+		},
+		{
+			"name": "Employees",
+			"item": [
+				{
+					"name": "Create Employee",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"if (pm.response.code === 201 || pm.response.code === 200) {",
+									"    var jsonData = pm.response.json();",
+									"    if (jsonData.id) {",
+									"        pm.collectionVariables.set(\"employee_id\", jsonData.id);",
+									"        console.log(\"Saved employee_id: \" + jsonData.id);",
+									"    } else if (jsonData.data && jsonData.data.id) {",
+									"        pm.collectionVariables.set(\"employee_id\", jsonData.data.id);",
+									"        console.log(\"Saved employee_id: \" + jsonData.data.id);",
+									"    }",
+									"}"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							},
+							{
+								"key": "Authorization",
+								"value": "Bearer {{token}}"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"full_name\": \"John Doe\",\n  \"email\": \"john@acme.com\",\n  \"cadre_id\": 1,\n  \"bank_name\": \"GTBank\",\n  \"bank_code\": \"058\",\n  \"bank_account_number\": \"0123456789\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/v1/employees",
+							"host": ["{{base_url}}"],
+							"path": ["v1", "employees"]
+						},
+						"description": "Create a new employee and assign them to a cadre. The cadre determines their salary structure. Admin or Operator role required."
+					},
+					"response": []
+				},
+				{
+					"name": "List Employees",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							},
+							{
+								"key": "Authorization",
+								"value": "Bearer {{token}}"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/v1/employees",
+							"host": ["{{base_url}}"],
+							"path": ["v1", "employees"]
+						},
+						"description": "List all employees for the authenticated business. Admin or Operator role required."
+					},
+					"response": []
+				},
+				{
+					"name": "Get Employee by ID",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							},
+							{
+								"key": "Authorization",
+								"value": "Bearer {{token}}"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/v1/employees/{{employee_id}}",
+							"host": ["{{base_url}}"],
+							"path": ["v1", "employees", "{{employee_id}}"]
+						},
+						"description": "Get a specific employee by their ID, including their cadre and salary information. Admin or Operator role required."
+					},
+					"response": []
+				},
+				{
+					"name": "Update Employee",
+					"request": {
+						"method": "PUT",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							},
+							{
+								"key": "Authorization",
+								"value": "Bearer {{token}}"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"full_name\": \"John Doe Updated\",\n  \"email\": \"john.doe@acme.com\",\n  \"cadre_id\": 1,\n  \"bank_name\": \"GTBank\",\n  \"bank_code\": \"058\",\n  \"bank_account_number\": \"0123456789\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/v1/employees/{{employee_id}}",
+							"host": ["{{base_url}}"],
+							"path": ["v1", "employees", "{{employee_id}}"]
+						},
+						"description": "Update an existing employee's details. All fields are optional - only provided fields will be updated. Admin or Operator role required."
+					},
+					"response": []
+				},
+				{
+					"name": "Deactivate Employee",
+					"request": {
+						"method": "PATCH",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							},
+							{
+								"key": "Authorization",
+								"value": "Bearer {{token}}"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/v1/employees/{{employee_id}}/deactivate",
+							"host": ["{{base_url}}"],
+							"path": ["v1", "employees", "{{employee_id}}", "deactivate"]
+						},
+						"description": "Deactivate an employee. Deactivated employees are excluded from future payroll runs. Admin or Operator role required."
+					},
+					"response": []
+				}
+			],
+			"description": "Manage employees including creation, updates, and deactivation."
+		},
+		{
+			"name": "Payroll Runs",
+			"item": [
+				{
+					"name": "Create Payroll Run",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"if (pm.response.code === 201 || pm.response.code === 200) {",
+									"    var jsonData = pm.response.json();",
+									"    if (jsonData.id) {",
+									"        pm.collectionVariables.set(\"payroll_run_id\", jsonData.id);",
+									"        console.log(\"Saved payroll_run_id: \" + jsonData.id);",
+									"    } else if (jsonData.data && jsonData.data.id) {",
+									"        pm.collectionVariables.set(\"payroll_run_id\", jsonData.data.id);",
+									"        console.log(\"Saved payroll_run_id: \" + jsonData.data.id);",
+									"    }",
+									"}"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							},
+							{
+								"key": "Authorization",
+								"value": "Bearer {{token}}"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"period\": \"2026-02\",\n  \"adjustments\": {\n    \"1\": [\n      {\n        \"item_name\": \"Performance Bonus\",\n        \"amount\": 50000,\n        \"description\": \"Q1 performance bonus\",\n        \"component_type\": \"earnings\"\n      }\n    ]\n  }\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/v1/payroll-runs",
+							"host": ["{{base_url}}"],
+							"path": ["v1", "payroll-runs"]
+						},
+						"description": "Create a new payroll run for a given period. Optionally include per-employee adjustments (bonuses, penalties). Period defaults to current month if not provided. Admin or Operator role required."
+					},
+					"response": []
+				},
+				{
+					"name": "List Payroll Runs",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							},
+							{
+								"key": "Authorization",
+								"value": "Bearer {{token}}"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/v1/payroll-runs",
+							"host": ["{{base_url}}"],
+							"path": ["v1", "payroll-runs"]
+						},
+						"description": "List all payroll runs for the authenticated business. Admin, Operator, or Approver role required."
+					},
+					"response": []
+				},
+				{
+					"name": "Get Payroll Run by ID",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							},
+							{
+								"key": "Authorization",
+								"value": "Bearer {{token}}"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/v1/payroll-runs/{{payroll_run_id}}",
+							"host": ["{{base_url}}"],
+							"path": ["v1", "payroll-runs", "{{payroll_run_id}}"]
+						},
+						"description": "Get a specific payroll run by ID with all payslip details. Admin, Operator, or Approver role required."
+					},
+					"response": []
+				},
+				{
+					"name": "Submit for Approval",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							},
+							{
+								"key": "Authorization",
+								"value": "Bearer {{token}}"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/v1/payroll-runs/{{payroll_run_id}}/submit",
+							"host": ["{{base_url}}"],
+							"path": ["v1", "payroll-runs", "{{payroll_run_id}}", "submit"]
+						},
+						"description": "Submit a draft payroll run for approval. Changes the status from 'draft' to 'pending_approval'. Admin or Operator role required."
+					},
+					"response": []
+				},
+				{
+					"name": "Approve Payroll Run",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							},
+							{
+								"key": "Authorization",
+								"value": "Bearer {{token}}"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/v1/payroll-runs/{{payroll_run_id}}/approve",
+							"host": ["{{base_url}}"],
+							"path": ["v1", "payroll-runs", "{{payroll_run_id}}", "approve"]
+						},
+						"description": "Approve a pending payroll run. Changes the status to 'approved'. Admin or Approver role required."
+					},
+					"response": []
+				},
+				{
+					"name": "Reject Payroll Run",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							},
+							{
+								"key": "Authorization",
+								"value": "Bearer {{token}}"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"reason\": \"Incorrect bonus amounts for Q1 - please recalculate based on updated performance metrics.\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/v1/payroll-runs/{{payroll_run_id}}/reject",
+							"host": ["{{base_url}}"],
+							"path": ["v1", "payroll-runs", "{{payroll_run_id}}", "reject"]
+						},
+						"description": "Reject a pending payroll run with a reason. Changes the status to 'rejected'. Admin or Approver role required."
+					},
+					"response": []
+				},
+				{
+					"name": "Process Now",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							},
+							{
+								"key": "Authorization",
+								"value": "Bearer {{token}}"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/v1/payroll-runs/{{payroll_run_id}}/process-now",
+							"host": ["{{base_url}}"],
+							"path": ["v1", "payroll-runs", "{{payroll_run_id}}", "process-now"]
+						},
+						"description": "Immediately process an approved payroll run, triggering salary disbursements. Admin or Operator role required."
+					},
+					"response": []
+				}
+			],
+			"description": "Payroll run lifecycle: create, submit for approval, approve/reject, and process."
+		},
+		{
+			"name": "Wallets",
+			"item": [
+				{
+					"name": "Create Account Holder",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"if (pm.response.code === 201 || pm.response.code === 200) {",
+									"    var jsonData = pm.response.json();",
+									"    if (jsonData.reference) {",
+									"        pm.collectionVariables.set(\"account_holder_reference\", jsonData.reference);",
+									"        console.log(\"Saved account_holder_reference: \" + jsonData.reference);",
+									"    } else if (jsonData.data && jsonData.data.reference) {",
+									"        pm.collectionVariables.set(\"account_holder_reference\", jsonData.data.reference);",
+									"        console.log(\"Saved account_holder_reference: \" + jsonData.data.reference);",
+									"    }",
+									"}"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							},
+							{
+								"key": "Authorization",
+								"value": "Bearer {{token}}"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"first_name\": \"Toluwase\",\n  \"last_name\": \"Adeyemo\",\n  \"use_case\": \"Business\",\n  \"type\": \"individual\",\n  \"date_of_birth\": \"1990-05-15\",\n  \"nationality\": \"NG\",\n  \"occupation\": \"Software Engineer\",\n  \"email\": \"toluwase@acmecorp.com\",\n  \"phone\": \"+2348133443000\",\n  \"bank_id_number\": \"12345678901\",\n  \"source_of_inflow\": \"business_income\",\n  \"address\": {\n    \"country\": \"NG\",\n    \"zip\": \"100001\",\n    \"address\": \"123 Victoria Island\",\n    \"state\": \"Lagos\",\n    \"city\": \"Lagos\"\n  },\n  \"employment\": {\n    \"status\": \"employer\",\n    \"employer\": \"Acme Corp\",\n    \"description\": \"CEO of Acme Corp\"\n  },\n  \"identification\": {\n    \"type\": \"national_id\",\n    \"number\": \"AB123456789\",\n    \"country\": \"NG\"\n  }\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/v1/wallets/account-holders",
+							"host": ["{{base_url}}"],
+							"path": ["v1", "wallets", "account-holders"]
+						},
+						"description": "Create a new account holder with KYC information. This is the first step before creating a virtual account."
+					},
+					"response": []
+				},
+				{
+					"name": "Get Account Holder Details",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							},
+							{
+								"key": "Authorization",
+								"value": "Bearer {{token}}"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/v1/wallets/account-holders/{{account_holder_reference}}/details",
+							"host": ["{{base_url}}"],
+							"path": ["v1", "wallets", "account-holders", "{{account_holder_reference}}", "details"]
+						},
+						"description": "Get account holder details and KYC status by reference."
+					},
+					"response": []
+				},
+				{
+					"name": "Update Account Holder KYC",
+					"request": {
+						"method": "PATCH",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							},
+							{
+								"key": "Authorization",
+								"value": "Bearer {{token}}"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"first_name\": \"Toluwase\",\n  \"last_name\": \"Adeyemo\",\n  \"source_of_inflow\": \"salary\",\n  \"identification\": {\n    \"type\": \"passport\",\n    \"number\": \"A12345678\",\n    \"issued_date\": \"2022-01-01\",\n    \"expiry_date\": \"2032-01-01\",\n    \"country\": \"NG\"\n  },\n  \"proof_of_address\": {\n    \"type\": \"utility_bill\"\n  }\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/v1/wallets/account-holders/{{account_holder_reference}}/update-kyc",
+							"host": ["{{base_url}}"],
+							"path": ["v1", "wallets", "account-holders", "{{account_holder_reference}}", "update-kyc"]
+						},
+						"description": "Update KYC information for an existing account holder. Used to provide additional documentation or correct details."
+					},
+					"response": []
+				},
+				{
+					"name": "Create Virtual Account",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							},
+							{
+								"key": "Authorization",
+								"value": "Bearer {{token}}"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"account_name\": \"Acme Corp Payroll\",\n  \"account_reference\": \"acme-payroll-001\",\n  \"customer_name\": \"Acme Corp\",\n  \"customer_email\": \"finance@acmecorp.com\",\n  \"bvn\": \"12345678901\",\n  \"nin\": \"98765432101\",\n  \"permanent\": true\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/v1/wallets/virtual-account",
+							"host": ["{{base_url}}"],
+							"path": ["v1", "wallets", "virtual-account"]
+						},
+						"description": "Create a virtual bank account for receiving funds. BVN is required for identity verification."
+					},
+					"response": []
+				},
+				{
+					"name": "Get Wallet",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							},
+							{
+								"key": "Authorization",
+								"value": "Bearer {{token}}"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/v1/wallets",
+							"host": ["{{base_url}}"],
+							"path": ["v1", "wallets"]
+						},
+						"description": "Get wallet details for the authenticated business, including virtual account information."
+					},
+					"response": []
+				},
+				{
+					"name": "Get Balance",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							},
+							{
+								"key": "Authorization",
+								"value": "Bearer {{token}}"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/v1/wallets/balance",
+							"host": ["{{base_url}}"],
+							"path": ["v1", "wallets", "balance"]
+						},
+						"description": "Get the current wallet balance for the authenticated business."
+					},
+					"response": []
+				},
+				{
+					"name": "Get Transactions",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							},
+							{
+								"key": "Authorization",
+								"value": "Bearer {{token}}"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/v1/wallets/transactions",
+							"host": ["{{base_url}}"],
+							"path": ["v1", "wallets", "transactions"]
+						},
+						"description": "Get transaction history for the wallet, including deposits and withdrawals."
+					},
+					"response": []
+				},
+				{
+					"name": "Generate File Upload URL",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							},
+							{
+								"key": "Authorization",
+								"value": "Bearer {{token}}"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"reference\": \"kyc-doc-001\",\n  \"purpose\": \"kyc_document\",\n  \"content_type\": \"image/jpeg\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/v1/wallets/files/generate-upload-url",
+							"host": ["{{base_url}}"],
+							"path": ["v1", "wallets", "files", "generate-upload-url"]
+						},
+						"description": "Generate a pre-signed URL for uploading KYC documents. Supported content types: image/jpeg, image/png, application/pdf."
+					},
+					"response": []
+				},
+				{
+					"name": "Sandbox Credit",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							},
+							{
+								"key": "Authorization",
+								"value": "Bearer {{token}}"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"account_number\": \"1234567890\",\n  \"amount\": 1000000,\n  \"currency\": \"NGN\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/v1/wallets/sandbox/credit",
+							"host": ["{{base_url}}"],
+							"path": ["v1", "wallets", "sandbox", "credit"]
+						},
+						"description": "Credit a virtual account in sandbox/testing environment. Admin role required. Amount is in main currency unit (e.g., NGN). For testing purposes only."
+					},
+					"response": []
+				}
+			],
+			"description": "Wallet management including virtual accounts, balances, transactions, account holders, and KYC."
+		},
+		{
+			"name": "Transfers",
+			"item": [
+				{
+					"name": "Single Transfer",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"if (pm.response.code === 201 || pm.response.code === 200) {",
+									"    var jsonData = pm.response.json();",
+									"    if (jsonData.id) {",
+									"        pm.collectionVariables.set(\"transfer_id\", jsonData.id);",
+									"        console.log(\"Saved transfer_id: \" + jsonData.id);",
+									"    } else if (jsonData.data && jsonData.data.id) {",
+									"        pm.collectionVariables.set(\"transfer_id\", jsonData.data.id);",
+									"        console.log(\"Saved transfer_id: \" + jsonData.data.id);",
+									"    }",
+									"}"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							},
+							{
+								"key": "Authorization",
+								"value": "Bearer {{token}}"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"amount\": \"50000\",\n  \"bank_code\": \"058\",\n  \"account_number\": \"0123456789\",\n  \"account_name\": \"John Doe\",\n  \"narration\": \"February 2026 salary payment\",\n  \"reference\": \"PAY-2026-02-001\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/v1/transfers",
+							"host": ["{{base_url}}"],
+							"path": ["v1", "transfers"]
+						},
+						"description": "Initiate a single transfer to a bank account. Provider-agnostic API with Korapay as primary provider. Reference is auto-generated if not provided."
+					},
+					"response": []
+				},
+				{
+					"name": "Batch Transfer",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							},
+							{
+								"key": "Authorization",
+								"value": "Bearer {{token}}"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"transfers\": [\n    {\n      \"amount\": \"50000\",\n      \"bank_code\": \"058\",\n      \"account_number\": \"0123456789\",\n      \"account_name\": \"John Doe\",\n      \"narration\": \"February 2026 salary\",\n      \"reference\": \"BATCH-2026-02-001\"\n    },\n    {\n      \"amount\": \"45000\",\n      \"bank_code\": \"033\",\n      \"account_number\": \"9876543210\",\n      \"account_name\": \"Jane Smith\",\n      \"narration\": \"February 2026 salary\",\n      \"reference\": \"BATCH-2026-02-002\"\n    },\n    {\n      \"amount\": \"60000\",\n      \"bank_code\": \"044\",\n      \"account_number\": \"5678901234\",\n      \"account_name\": \"Bob Johnson\",\n      \"narration\": \"February 2026 salary\",\n      \"reference\": \"BATCH-2026-02-003\"\n    }\n  ]\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/v1/transfers/batch",
+							"host": ["{{base_url}}"],
+							"path": ["v1", "transfers", "batch"]
+						},
+						"description": "Submit a batch of transfers (up to 100). Each transfer in the batch follows the same format as a single transfer."
+					},
+					"response": []
+				},
+				{
+					"name": "List Transfers",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							},
+							{
+								"key": "Authorization",
+								"value": "Bearer {{token}}"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/v1/transfers",
+							"host": ["{{base_url}}"],
+							"path": ["v1", "transfers"]
+						},
+						"description": "List all transfers for the authenticated business."
+					},
+					"response": []
+				},
+				{
+					"name": "Get Transfer",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							},
+							{
+								"key": "Authorization",
+								"value": "Bearer {{token}}"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/v1/transfers/{{transfer_id}}",
+							"host": ["{{base_url}}"],
+							"path": ["v1", "transfers", "{{transfer_id}}"]
+						},
+						"description": "Get details of a specific transfer by ID, including its current status."
+					},
+					"response": []
+				}
+			],
+			"description": "Provider-agnostic transfer API for single and batch bank transfers via Korapay."
+		},
+		{
+			"name": "VFD Transfers (Legacy)",
+			"item": [
+				{
+					"name": "Account Enquiry",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							},
+							{
+								"key": "Authorization",
+								"value": "Bearer {{token}}"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/v1/vfd/transfers/account-enquiry?accountNumber=0123456789",
+							"host": ["{{base_url}}"],
+							"path": ["v1", "vfd", "transfers", "account-enquiry"],
+							"query": [
+								{
+									"key": "accountNumber",
+									"value": "0123456789"
+								}
+							]
+						},
+						"description": "Look up account details by account number via VFD. Returns account holder name and details."
+					},
+					"response": []
+				},
+				{
+					"name": "Beneficiary Enquiry",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							},
+							{
+								"key": "Authorization",
+								"value": "Bearer {{token}}"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/v1/vfd/transfers/beneficiary-enquiry?accountNo=0123456789&bank=058&transfer_type=inter",
+							"host": ["{{base_url}}"],
+							"path": ["v1", "vfd", "transfers", "beneficiary-enquiry"],
+							"query": [
+								{
+									"key": "accountNo",
+									"value": "0123456789"
+								},
+								{
+									"key": "bank",
+									"value": "058"
+								},
+								{
+									"key": "transfer_type",
+									"value": "inter"
+								}
+							]
+						},
+						"description": "Look up beneficiary details for inter-bank or intra-bank transfers via VFD."
+					},
+					"response": []
+				},
+				{
+					"name": "Bank List",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							},
+							{
+								"key": "Authorization",
+								"value": "Bearer {{token}}"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/v1/vfd/transfers/banks",
+							"host": ["{{base_url}}"],
+							"path": ["v1", "vfd", "transfers", "banks"]
+						},
+						"description": "Get the list of supported banks and their codes from VFD."
+					},
+					"response": []
+				},
+				{
+					"name": "Initiate Transfer",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"if (pm.response.code === 201 || pm.response.code === 200) {",
+									"    var jsonData = pm.response.json();",
+									"    if (jsonData.id) {",
+									"        pm.collectionVariables.set(\"vfd_transfer_id\", jsonData.id);",
+									"        console.log(\"Saved vfd_transfer_id: \" + jsonData.id);",
+									"    } else if (jsonData.data && jsonData.data.id) {",
+									"        pm.collectionVariables.set(\"vfd_transfer_id\", jsonData.data.id);",
+									"        console.log(\"Saved vfd_transfer_id: \" + jsonData.data.id);",
+									"    }",
+									"}"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							},
+							{
+								"key": "Authorization",
+								"value": "Bearer {{token}}"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"fromAccount\": \"1234567890\",\n  \"uniqueSenderAccountId\": \"SENDER-001\",\n  \"fromClientId\": \"CLIENT-001\",\n  \"fromClient\": \"Acme Corp\",\n  \"fromSavingsId\": \"SAV-001\",\n  \"fromBvn\": \"12345678901\",\n  \"toClientId\": \"CLIENT-002\",\n  \"toClient\": \"John Doe\",\n  \"toSavingsId\": \"SAV-002\",\n  \"toSession\": \"SESSION-001\",\n  \"toBvn\": \"10987654321\",\n  \"toAccount\": \"0123456789\",\n  \"toBank\": \"058\",\n  \"signature\": \"generated-signature-hash\",\n  \"amount\": \"50000\",\n  \"remark\": \"February 2026 salary payment\",\n  \"transferType\": \"inter\",\n  \"reference\": \"VFD-TRF-2026-02-001\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/v1/vfd/transfers/initiate",
+							"host": ["{{base_url}}"],
+							"path": ["v1", "vfd", "transfers", "initiate"]
+						},
+						"description": "Initiate a bank transfer via VFD. Requires full sender and recipient details. Transfer type can be 'intra' (within VFD) or 'inter' (to other banks)."
+					},
+					"response": []
+				},
+				{
+					"name": "List VFD Transfers",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							},
+							{
+								"key": "Authorization",
+								"value": "Bearer {{token}}"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/v1/vfd/transfers",
+							"host": ["{{base_url}}"],
+							"path": ["v1", "vfd", "transfers"]
+						},
+						"description": "List all VFD transfers for the authenticated business."
+					},
+					"response": []
+				},
+				{
+					"name": "Get VFD Transfer by ID",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							},
+							{
+								"key": "Authorization",
+								"value": "Bearer {{token}}"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/v1/vfd/transfers/{{vfd_transfer_id}}",
+							"host": ["{{base_url}}"],
+							"path": ["v1", "vfd", "transfers", "{{vfd_transfer_id}}"]
+						},
+						"description": "Get details of a specific VFD transfer by its ID."
+					},
+					"response": []
+				},
+				{
+					"name": "Get Transfers by From Account",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							},
+							{
+								"key": "Authorization",
+								"value": "Bearer {{token}}"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/v1/vfd/transfers/from-account?account=1234567890",
+							"host": ["{{base_url}}"],
+							"path": ["v1", "vfd", "transfers", "from-account"],
+							"query": [
+								{
+									"key": "account",
+									"value": "1234567890"
+								}
+							]
+						},
+						"description": "List VFD transfers filtered by the sender (from) account number."
+					},
+					"response": []
+				},
+				{
+					"name": "Get Transfers by To Account",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							},
+							{
+								"key": "Authorization",
+								"value": "Bearer {{token}}"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/v1/vfd/transfers/to-account?account=0123456789",
+							"host": ["{{base_url}}"],
+							"path": ["v1", "vfd", "transfers", "to-account"],
+							"query": [
+								{
+									"key": "account",
+									"value": "0123456789"
+								}
+							]
+						},
+						"description": "List VFD transfers filtered by the recipient (to) account number."
+					},
+					"response": []
+				}
+			],
+			"description": "Legacy VFD-specific transfer endpoints including account enquiry, beneficiary lookup, bank list, and direct transfers."
+		},
+		{
+			"name": "Bulk Transfers (Legacy)",
+			"item": [
+				{
+					"name": "Single Bulk Transfer",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							},
+							{
+								"key": "Authorization",
+								"value": "Bearer {{token}}"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"from_account_number\": \"1234567890\",\n  \"to_account_number\": \"0123456789\",\n  \"to_bank_code\": \"058\",\n  \"amount\": \"50000\",\n  \"remark\": \"Salary payment February 2026\",\n  \"transfer_type\": \"inter\",\n  \"reference\": \"BULK-SINGLE-2026-02-001\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/v1/bulk-transfers/single",
+							"host": ["{{base_url}}"],
+							"path": ["v1", "bulk-transfers", "single"]
+						},
+						"description": "Legacy: Execute a single transfer through the bulk transfer service. Transfer type can be 'intra' or 'inter'."
+					},
+					"response": []
+				},
+				{
+					"name": "Batch Bulk Transfer",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							},
+							{
+								"key": "Authorization",
+								"value": "Bearer {{token}}"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"transfers\": [\n    {\n      \"from_account_number\": \"1234567890\",\n      \"to_account_number\": \"0123456789\",\n      \"to_bank_code\": \"058\",\n      \"amount\": \"50000\",\n      \"remark\": \"John Doe - Feb salary\",\n      \"transfer_type\": \"inter\",\n      \"reference\": \"BULK-BATCH-2026-02-001\"\n    },\n    {\n      \"from_account_number\": \"1234567890\",\n      \"to_account_number\": \"9876543210\",\n      \"to_bank_code\": \"033\",\n      \"amount\": \"45000\",\n      \"remark\": \"Jane Smith - Feb salary\",\n      \"transfer_type\": \"inter\",\n      \"reference\": \"BULK-BATCH-2026-02-002\"\n    }\n  ]\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/v1/bulk-transfers/batch",
+							"host": ["{{base_url}}"],
+							"path": ["v1", "bulk-transfers", "batch"]
+						},
+						"description": "Legacy: Execute a batch of transfers (up to 100) through the bulk transfer service."
+					},
+					"response": []
+				},
+				{
+					"name": "Get Transfer Flow Data",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							},
+							{
+								"key": "Authorization",
+								"value": "Bearer {{token}}"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"from_account_number\": \"1234567890\",\n  \"to_account_number\": \"0123456789\",\n  \"to_bank_code\": \"058\",\n  \"amount\": \"50000\",\n  \"remark\": \"Flow data check\",\n  \"transfer_type\": \"inter\",\n  \"reference\": \"FLOW-CHECK-001\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/v1/bulk-transfers/flow-data",
+							"host": ["{{base_url}}"],
+							"path": ["v1", "bulk-transfers", "flow-data"]
+						},
+						"description": "Legacy: Pre-fetch all required data for a transfer (account enquiry, beneficiary enquiry) without executing it."
+					},
+					"response": []
+				}
+			],
+			"description": "Legacy bulk transfer endpoints (deprecated). Use the Transfers folder for the new provider-agnostic API."
+		},
+		{
+			"name": "Webhooks",
+			"item": [
+				{
+					"name": "List Webhook Notifications",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							},
+							{
+								"key": "Authorization",
+								"value": "Bearer {{token}}"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/v1/vfd/webhooks",
+							"host": ["{{base_url}}"],
+							"path": ["v1", "vfd", "webhooks"]
+						},
+						"description": "List all webhook notifications received from VFD for the authenticated business."
+					},
+					"response": []
+				},
+				{
+					"name": "Get Webhook Notification by ID",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"if (pm.response.code === 200) {",
+									"    var jsonData = pm.response.json();",
+									"    if (jsonData.id) {",
+									"        pm.collectionVariables.set(\"webhook_id\", jsonData.id);",
+									"    } else if (jsonData.data && jsonData.data.id) {",
+									"        pm.collectionVariables.set(\"webhook_id\", jsonData.data.id);",
+									"    }",
+									"}"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							},
+							{
+								"key": "Authorization",
+								"value": "Bearer {{token}}"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/v1/vfd/webhooks/{{webhook_id}}",
+							"host": ["{{base_url}}"],
+							"path": ["v1", "vfd", "webhooks", "{{webhook_id}}"]
+						},
+						"description": "Get a specific webhook notification by its ID."
+					},
+					"response": []
+				},
+				{
+					"name": "Get Webhooks by Account Number",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							},
+							{
+								"key": "Authorization",
+								"value": "Bearer {{token}}"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/v1/vfd/webhooks/account/1234567890",
+							"host": ["{{base_url}}"],
+							"path": ["v1", "vfd", "webhooks", "account", "1234567890"]
+						},
+						"description": "Get all webhook notifications for a specific account number."
+					},
+					"response": []
+				}
+			],
+			"description": "View VFD webhook notifications received for inward credits and other events."
+		}
+	]
+}

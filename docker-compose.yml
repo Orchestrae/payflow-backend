@@ -43,7 +43,7 @@ services:
       dockerfile: Dockerfile.dev
     container_name: payflow_app
     ports:
-      - "8080:8080"
+      - "8082:8080"
     volumes:
       - .:/app
     depends_on:

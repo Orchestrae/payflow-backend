@@ -72,7 +72,7 @@ func (p *korapayTransferProvider) InitiateTransfer(ctx context.Context, req *dom
 	}
 
 	// Call Korapay API
-	koraResponse, err := p.client.SendSingleDisbursement(koraRequest)
+	koraResponse, err := p.client.SendSingleDisbursement(ctx, koraRequest)
 	if err != nil {
 		return nil, fmt.Errorf("korapay disbursement failed: %w", err)
 	}
@@ -182,7 +182,7 @@ func (p *korapayTransferProvider) InitiateBulkTransfer(ctx context.Context, req 
 	}
 
 	// Call Korapay bulk API
-	koraResponse, err := p.client.SendBulkPayout(koraRequest)
+	koraResponse, err := p.client.SendBulkPayout(ctx, koraRequest)
 	if err != nil {
 		return nil, fmt.Errorf("korapay bulk disbursement failed: %w", err)
 	}

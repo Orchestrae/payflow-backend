@@ -4,6 +4,7 @@ import (
 	"context"
 	"payflow/internal/domain"
 	"payflow/internal/repository"
+	"time"
 
 	"gorm.io/gorm"
 )
@@ -18,12 +19,12 @@ type VFDWebhookNotification struct {
 	OriginatorAccountName   string `gorm:"size:255"`
 	OriginatorBank          string `gorm:"size:10"`
 	OriginatorNarration     string `gorm:"size:500"`
-	Timestamp               gorm.Model
+	Timestamp               time.Time
 	TransactionChannel      string `gorm:"size:10"`
 	SessionID               string `gorm:"size:50;index"`
 	InitialCreditRequest    bool   `gorm:"default:false"`
 	Status                  string `gorm:"size:20;default:'pending'"`
-	ProcessedAt             *gorm.Model
+	ProcessedAt             *time.Time
 	ProcessingError         *string `gorm:"size:1000"`
 }
 
@@ -159,7 +160,7 @@ func (n *VFDWebhookNotification) ToDomain() *domain.VFDWebhookNotification {
 		OriginatorAccountName:   n.OriginatorAccountName,
 		OriginatorBank:          n.OriginatorBank,
 		OriginatorNarration:     n.OriginatorNarration,
-		Timestamp:               n.Timestamp.CreatedAt,
+		Timestamp:               n.Timestamp,
 		TransactionChannel:      n.TransactionChannel,
 		SessionID:               n.SessionID,
 		InitialCreditRequest:    n.InitialCreditRequest,
@@ -169,7 +170,7 @@ func (n *VFDWebhookNotification) ToDomain() *domain.VFDWebhookNotification {
 
 	// Handle processed at
 	if n.ProcessedAt != nil {
-		notification.ProcessedAt = &n.ProcessedAt.CreatedAt
+		notification.ProcessedAt = n.ProcessedAt
 	}
 
 	return notification
@@ -199,13 +200,11 @@ func VFDWebhookNotificationFromDomain(n *domain.VFDWebhookNotification) *VFDWebh
 	}
 
 	// Handle timestamp
-	if !n.Timestamp.IsZero() {
-		model.Timestamp = gorm.Model{CreatedAt: n.Timestamp}
-	}
+	model.Timestamp = n.Timestamp
 
 	// Handle processed at
 	if n.ProcessedAt != nil {
-		model.ProcessedAt = &gorm.Model{CreatedAt: *n.ProcessedAt}
+		model.ProcessedAt = n.ProcessedAt
 	}
 
 	return model

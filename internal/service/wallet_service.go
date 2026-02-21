@@ -9,8 +9,6 @@ import (
 	"payflow/internal/domain"
 	"payflow/internal/repository"
 	"payflow/internal/service/provider"
-
-	"github.com/google/uuid"
 )
 
 // WalletService defines the business logic for wallet operations.
@@ -230,7 +228,8 @@ func (s *walletService) RecordDeposit(ctx context.Context, businessID uint, noti
 		return fmt.Errorf("failed to update wallet balance: %w", err)
 	}
 
-	// Record transaction
+	// Record transaction using the provider reference as our reference for idempotency.
+	// This ensures FindByReference will correctly detect duplicate deposit notifications.
 	tx := &domain.WalletTransaction{
 		BusinessID:        businessID,
 		TransactionType:   domain.WalletTransactionDeposit,
@@ -238,7 +237,7 @@ func (s *walletService) RecordDeposit(ctx context.Context, businessID uint, noti
 		BalanceBefore:     balanceBefore,
 		BalanceAfter:      balanceAfter,
 		Currency:          notification.Currency,
-		Reference:         uuid.New().String(), // Generate internal reference
+		Reference:         notification.Reference, // Use provider reference for idempotency
 		ProviderReference: notification.Reference,
 		Description:       notification.Description,
 		Status:            notification.Status,
@@ -260,6 +259,13 @@ func (s *walletService) RecordWithdrawal(ctx context.Context, businessID uint, t
 	wallet, err := s.walletRepo.FindByBusinessID(ctx, businessID)
 	if err != nil {
 		return fmt.Errorf("wallet not found: %w", err)
+	}
+
+	// Idempotency check: if a withdrawal with this reference already exists, skip
+	existingTx, err := s.walletTxRepo.FindByReference(ctx, reference)
+	if err == nil && existingTx != nil {
+		// Withdrawal already recorded
+		return nil
 	}
 
 	// Calculate total debit (amount + fee)

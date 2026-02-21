@@ -3,6 +3,7 @@ package handler
 import (
 	"encoding/json"
 	"net/http"
+	"payflow/internal/api/middleware"
 	"payflow/internal/api/request"
 	"payflow/internal/api/response"
 	"payflow/internal/domain"
@@ -39,14 +40,13 @@ func (h *BulkTransferHandler) HandleSingleTransfer(w http.ResponseWriter, r *htt
 		return
 	}
 
-	// Get business ID from context (set by auth middleware)
-	businessID, exists := r.Context().Value("business_id").(uint)
-	if !exists {
+	claims, ok := middleware.GetClaimsFromContext(r.Context())
+	if !ok {
 		response.RespondWithError(w, domain.ErrUnauthorized)
 		return
 	}
+	businessID := claims.BusinessID
 
-	// Convert request to domain model
 	bulkTransferReq := &domain.LegacyBulkTransferRequest{
 		FromAccountNumber:  req.FromAccountNumber,
 		ToAccountNumber:    req.ToAccountNumber,
@@ -60,14 +60,12 @@ func (h *BulkTransferHandler) HandleSingleTransfer(w http.ResponseWriter, r *htt
 		BankCode:           req.BankCode,
 	}
 
-	// Execute the transfer
 	result, err := h.bulkTransferService.ExecuteSingleTransfer(r.Context(), businessID, bulkTransferReq)
 	if err != nil {
 		response.RespondWithError(w, err)
 		return
 	}
 
-	// Convert to response format
 	transferResponse := response.BulkTransferResponse{
 		Success:        result.Success,
 		TransferID:     result.TransferID,
@@ -76,7 +74,6 @@ func (h *BulkTransferHandler) HandleSingleTransfer(w http.ResponseWriter, r *htt
 		ProcessingTime: result.ProcessingTime,
 	}
 
-	// Convert from account details
 	if result.FromAccountDetails != nil {
 		transferResponse.FromAccountDetails = &response.AccountEnquiryData{
 			AccountNo:          result.FromAccountDetails.AccountNo,
@@ -88,7 +85,6 @@ func (h *BulkTransferHandler) HandleSingleTransfer(w http.ResponseWriter, r *htt
 		}
 	}
 
-	// Convert to account details
 	if result.ToAccountDetails != nil {
 		transferResponse.ToAccountDetails = &response.BeneficiaryEnquiryData{
 			Name:     result.ToAccountDetails.Name,
@@ -138,14 +134,13 @@ func (h *BulkTransferHandler) HandleBatchTransfer(w http.ResponseWriter, r *http
 		return
 	}
 
-	// Get business ID from context (set by auth middleware)
-	businessID, exists := r.Context().Value("business_id").(uint)
-	if !exists {
+	claims, ok := middleware.GetClaimsFromContext(r.Context())
+	if !ok {
 		response.RespondWithError(w, domain.ErrUnauthorized)
 		return
 	}
+	businessID := claims.BusinessID
 
-	// Convert request to domain model
 	bulkTransferReqs := make([]domain.LegacyBulkTransferRequest, len(req.Transfers))
 	for i, transferReq := range req.Transfers {
 		bulkTransferReqs[i] = domain.LegacyBulkTransferRequest{
@@ -166,14 +161,12 @@ func (h *BulkTransferHandler) HandleBatchTransfer(w http.ResponseWriter, r *http
 		Transfers: bulkTransferReqs,
 	}
 
-	// Execute the batch transfer
 	result, err := h.bulkTransferService.ExecuteBatchTransfer(r.Context(), businessID, batchReq)
 	if err != nil {
 		response.RespondWithError(w, err)
 		return
 	}
 
-	// Convert to response format
 	transferResponses := make([]response.BulkTransferResponse, len(result.Transfers))
 	for i, transferResult := range result.Transfers {
 		transferResponses[i] = response.BulkTransferResponse{
@@ -184,7 +177,6 @@ func (h *BulkTransferHandler) HandleBatchTransfer(w http.ResponseWriter, r *http
 			ProcessingTime: transferResult.ProcessingTime,
 		}
 
-		// Convert from account details
 		if transferResult.FromAccountDetails != nil {
 			transferResponses[i].FromAccountDetails = &response.AccountEnquiryData{
 				AccountNo:          transferResult.FromAccountDetails.AccountNo,
@@ -196,7 +188,6 @@ func (h *BulkTransferHandler) HandleBatchTransfer(w http.ResponseWriter, r *http
 			}
 		}
 
-		// Convert to account details
 		if transferResult.ToAccountDetails != nil {
 			transferResponses[i].ToAccountDetails = &response.BeneficiaryEnquiryData{
 				Name:     transferResult.ToAccountDetails.Name,
@@ -255,14 +246,13 @@ func (h *BulkTransferHandler) HandleGetTransferFlowData(w http.ResponseWriter, r
 		return
 	}
 
-	// Get business ID from context (set by auth middleware)
-	businessID, exists := r.Context().Value("business_id").(uint)
-	if !exists {
+	claims, ok := middleware.GetClaimsFromContext(r.Context())
+	if !ok {
 		response.RespondWithError(w, domain.ErrUnauthorized)
 		return
 	}
+	businessID := claims.BusinessID
 
-	// Convert request to domain model
 	bulkTransferReq := &domain.LegacyBulkTransferRequest{
 		FromAccountNumber:  req.FromAccountNumber,
 		ToAccountNumber:    req.ToAccountNumber,
@@ -276,14 +266,12 @@ func (h *BulkTransferHandler) HandleGetTransferFlowData(w http.ResponseWriter, r
 		BankCode:           req.BankCode,
 	}
 
-	// Get transfer flow data
 	flowData, err := h.bulkTransferService.GetTransferFlowData(r.Context(), businessID, bulkTransferReq)
 	if err != nil {
 		response.RespondWithError(w, err)
 		return
 	}
 
-	// Convert to response format
 	flowResponse := map[string]interface{}{
 		"from_account_details": flowData.FromAccountDetails,
 		"to_account_details":   flowData.ToAccountDetails,

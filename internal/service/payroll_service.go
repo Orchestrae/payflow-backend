@@ -4,9 +4,9 @@ package service
 import (
 	"context"
 	"fmt"
-	"log/slog"
 	"payflow/internal/domain"
 	"payflow/internal/repository"
+	"strings"
 	"time"
 
 	"github.com/rs/zerolog/log"
@@ -135,7 +135,7 @@ func (s *payrollService) CalculatePayrollRun(ctx context.Context, businessID uin
 	// 1. Fetch all employees for the business.
 	allEmployees, err := s.employeeRepo.FindByBusinessID(ctx, businessID)
 	if err != nil {
-		slog.Error("Failed to fetch employees", "error", err)
+		log.Error().Err(err).Msg("Failed to fetch employees")
 		return nil, fmt.Errorf("failed to fetch employees: %w", err)
 	}
 
@@ -146,7 +146,7 @@ func (s *payrollService) CalculatePayrollRun(ctx context.Context, businessID uin
 			// Load cadre with earning components and deduction rules
 			cadre, err := s.cadreRepo.FindByID(ctx, emp.CadreID, businessID)
 			if err != nil {
-				slog.Warn("Failed to load cadre for employee", "employee_id", emp.ID, "cadre_id", emp.CadreID, "error", err)
+				log.Warn().Err(err).Uint("employee_id", emp.ID).Uint("cadre_id", emp.CadreID).Msg("Failed to load cadre for employee")
 				continue
 			}
 			emp.Cadre = cadre
@@ -164,16 +164,20 @@ func (s *payrollService) CalculatePayrollRun(ctx context.Context, businessID uin
 
 	for _, emp := range employees {
 		if emp.Cadre == nil {
-			slog.Warn("Employee without cadre", "slog_employee_id", emp.ID, "slog_employee_name", emp.FullName, "slog_business_id", businessID)
+			log.Warn().Uint("employee_id", emp.ID).Str("employee_name", emp.FullName).Uint("business_id", businessID).Msg("Employee without cadre")
 			continue
 		}
 
 		var entryGross, entryDeductions, entryBonus int64
+		var basicPayAmount int64
 		details := make([]domain.PayrollRunEntryDetail, 0)
 
-		// Calculate Gross Pay
+		// Calculate Gross Pay and track the basic pay component
 		for _, ec := range emp.Cadre.EarningComponents {
 			entryGross += ec.Amount
+			if strings.EqualFold(ec.Name, "basic pay") || strings.EqualFold(ec.Name, "basic salary") || strings.EqualFold(ec.Name, "basic") {
+				basicPayAmount = ec.Amount
+			}
 			details = append(details, domain.PayrollRunEntryDetail{
 				Type:   domain.DetailTypeEarning,
 				Name:   ec.Name,
@@ -181,11 +185,16 @@ func (s *payrollService) CalculatePayrollRun(ctx context.Context, businessID uin
 			})
 		}
 
-		// Calculate Deductions
+		// Calculate Deductions, respecting CalculationBasis
 		for _, dr := range emp.Cadre.DeductionRules {
 			var deductionAmount int64
 			if dr.Type == domain.DeductionTypePercentage {
-				deductionAmount = int64(float64(entryGross) * (dr.Value / 100.0))
+				// Determine the base amount for percentage deductions
+				baseAmount := entryGross
+				if dr.CalculationBasis == domain.BasisBasicPay && basicPayAmount > 0 {
+					baseAmount = basicPayAmount
+				}
+				deductionAmount = int64(float64(baseAmount) * (dr.Value / 100.0))
 			} else {
 				deductionAmount = int64(dr.Value)
 			}
@@ -316,10 +325,7 @@ func (s *payrollService) ApprovePayrollRun(ctx context.Context, runID, approverI
 
 	// If auto-process is enabled, process immediately (for testing)
 	if business.PayrollAutoProcess {
-		slog.Info("Auto-processing payroll run (business config: auto-process enabled)",
-			"run_id", runID,
-			"business_id", approver.BusinessID,
-		)
+		log.Info().Uint("run_id", runID).Uint("business_id", approver.BusinessID).Msg("Auto-processing payroll run (business config: auto-process enabled)")
 		return s.processPayrollRunInstantly(ctx, run, approver.BusinessID)
 	}
 
@@ -358,10 +364,7 @@ func (s *payrollService) SubmitForApproval(ctx context.Context, runID, userID ui
 	// If business doesn't require approval, auto-approve
 	if !business.PayrollRequiresApproval {
 		run.Status = domain.StatusApproved
-		slog.Info("Auto-approving payroll run (business config: no approval required)",
-			"run_id", runID,
-			"business_id", user.BusinessID,
-		)
+		log.Info().Uint("run_id", runID).Uint("business_id", user.BusinessID).Msg("Auto-approving payroll run (business config: no approval required)")
 
 		// If auto-process is enabled, process immediately
 		if business.PayrollAutoProcess {
@@ -424,10 +427,7 @@ func (s *payrollService) GetByID(ctx context.Context, runID, businessID uint) (*
 // This allows businesses to pay employees instantly without waiting for scheduled processing.
 // It executes bulk transfers and verifies them in the database.
 func (s *payrollService) ProcessPayrollRunInstantly(ctx context.Context, runID, businessID uint) (*domain.PayrollRun, error) {
-	slog.Info("Processing payroll run instantly",
-		"run_id", runID,
-		"business_id", businessID,
-	)
+	log.Info().Uint("run_id", runID).Uint("business_id", businessID).Msg("Processing payroll run instantly")
 
 	// Fetch the payroll run
 	run, err := s.payrollRepo.FindByID(ctx, runID, businessID)
@@ -451,7 +451,7 @@ func (s *payrollService) ProcessPayrollRunInstantly(ctx context.Context, runID, 
 		if run.Entries[i].Employee == nil {
 			emp, err := s.employeeRepo.FindByID(ctx, run.Entries[i].EmployeeID, businessID)
 			if err != nil {
-				slog.Warn("Failed to load employee for entry", "entry_id", run.Entries[i].ID, "employee_id", run.Entries[i].EmployeeID, "error", err)
+				log.Warn().Err(err).Uint("entry_id", run.Entries[i].ID).Uint("employee_id", run.Entries[i].EmployeeID).Msg("Failed to load employee for entry")
 				continue
 			}
 			run.Entries[i].Employee = emp
@@ -462,7 +462,7 @@ func (s *payrollService) ProcessPayrollRunInstantly(ctx context.Context, runID, 
 	transfers := make([]domain.SingleTransferRequest, 0, len(run.Entries))
 	for _, entry := range run.Entries {
 		if entry.Employee == nil {
-			slog.Warn("Skipping entry with nil employee", "entry_id", entry.ID)
+			log.Warn().Uint("entry_id", entry.ID).Msg("Skipping entry with nil employee")
 			continue
 		}
 
@@ -470,7 +470,11 @@ func (s *payrollService) ProcessPayrollRunInstantly(ctx context.Context, runID, 
 		amountStr := fmt.Sprintf("%d", entry.NetPay)
 
 		// Map bank name to bank code (simplified - should use a proper mapping)
-		bankCode := s.mapBankNameToCode(entry.Employee.BankName)
+		bankCode, err := s.mapBankNameToCode(entry.Employee.BankName)
+		if err != nil {
+			log.Warn().Err(err).Uint("employee_id", entry.EmployeeID).Str("bank_name", entry.Employee.BankName).Msg("Skipping entry: could not map bank name to code")
+			continue
+		}
 
 		// Ensure account number is exactly 10 characters (Korapay requirement)
 		accountNumber := entry.Employee.BankAccountNumber
@@ -521,12 +525,7 @@ func (s *payrollService) ProcessPayrollRunInstantly(ctx context.Context, runID, 
 		run.PaymentReference = bulkReq.BatchReference
 		now := time.Now()
 		run.ProcessedAt = &now
-		slog.Info("Payroll run processed successfully",
-			"run_id", runID,
-			"total_transfers", len(transfers),
-			"successful", bulkResp.SuccessfulTransfers,
-			"verified_in_db", verificationResult.VerifiedCount,
-		)
+		log.Info().Uint("run_id", runID).Int("total_transfers", len(transfers)).Int("successful", bulkResp.SuccessfulTransfers).Int("verified_in_db", verificationResult.VerifiedCount).Msg("Payroll run processed successfully")
 	} else if verificationResult.AllVerified {
 		// Transfers created in DB but some may have failed at provider
 		// If all transfers are verified in DB, mark as completed (provider will update status via webhook)
@@ -534,25 +533,15 @@ func (s *payrollService) ProcessPayrollRunInstantly(ctx context.Context, runID, 
 		run.PaymentReference = bulkReq.BatchReference
 		now := time.Now()
 		run.ProcessedAt = &now
-		slog.Info("Payroll run completed (all transfers verified in database)",
-			"run_id", runID,
-			"total_transfers", len(transfers),
-			"api_successful", bulkResp.SuccessfulTransfers,
-			"verified_in_db", verificationResult.VerifiedCount,
-		)
+		log.Info().Uint("run_id", runID).Int("total_transfers", len(transfers)).Int("api_successful", bulkResp.SuccessfulTransfers).Int("verified_in_db", verificationResult.VerifiedCount).Msg("Payroll run completed (all transfers verified in database)")
 	} else {
 		// Some transfers failed or weren't created
 		run.Status = domain.StatusFailed
-		slog.Warn("Payroll run failed",
-			"run_id", runID,
-			"successful", bulkResp.SuccessfulTransfers,
-			"total", len(transfers),
-			"verified", verificationResult.VerifiedCount,
-		)
+		log.Warn().Uint("run_id", runID).Int("successful", bulkResp.SuccessfulTransfers).Int("total", len(transfers)).Int("verified", verificationResult.VerifiedCount).Msg("Payroll run failed")
 	}
 
 	if err := s.payrollRepo.Update(ctx, run); err != nil {
-		slog.Error("Failed to update payroll run status", "error", err)
+		log.Error().Err(err).Msg("Failed to update payroll run status")
 		return nil, fmt.Errorf("failed to update payroll run: %w", err)
 	}
 
@@ -572,7 +561,7 @@ func (s *payrollService) verifyTransfersInDatabase(ctx context.Context, business
 	// Get all transfers for this business created recently (within last 2 minutes)
 	transfers, total, err := s.transferRepo.FindByBusinessID(ctx, businessID, 1, 200)
 	if err != nil {
-		slog.Error("Failed to fetch transfers for verification", "error", err)
+		log.Error().Err(err).Msg("Failed to fetch transfers for verification")
 		return TransferVerificationResult{
 			AllVerified:   false,
 			VerifiedCount: 0,
@@ -599,13 +588,7 @@ func (s *payrollService) verifyTransfersInDatabase(ctx context.Context, business
 
 	allVerified := verifiedCount >= expectedCount
 
-	slog.Info("Transfer verification completed",
-		"payroll_run_id", payrollRunID,
-		"expected", expectedCount,
-		"verified", verifiedCount,
-		"total_fetched", total,
-		"all_verified", allVerified,
-	)
+	log.Info().Uint("payroll_run_id", payrollRunID).Int("expected", expectedCount).Int("verified", verifiedCount).Int("total_fetched", total).Bool("all_verified", allVerified).Msg("Transfer verification completed")
 
 	return TransferVerificationResult{
 		AllVerified:   allVerified,
@@ -666,40 +649,40 @@ func (s *payrollService) MarkRunAsCompleted(ctx context.Context, runID uint, ref
 	return s.payrollRepo.Update(ctx, run)
 }
 
-// mapBankNameToCode maps bank names to bank codes (simplified mapping)
-// In production, this should use a proper bank code lookup service
-func (s *payrollService) mapBankNameToCode(bankName string) string {
-	// Common Nigerian bank codes
+// mapBankNameToCode maps bank names to bank codes (simplified mapping).
+// Returns an error if the bank name cannot be mapped.
+// In production, this should use a proper bank code lookup service.
+func (s *payrollService) mapBankNameToCode(bankName string) (string, error) {
+	// Common Nigerian bank codes (keys are lowercase for case-insensitive matching)
 	bankMap := map[string]string{
-		"Access Bank":        "044",
-		"Access":             "044",
-		"United Bank for Africa": "033",
-		"UBA":                "033",
-		"Guaranty Trust Bank": "058",
-		"GTB":                "058",
-		"GTBank":             "058",
-		"First Bank":         "011",
-		"Zenith Bank":        "057",
-		"Zenith":             "057",
-		"Fidelity Bank":      "070",
-		"Union Bank":         "032",
-		"Stanbic IBTC":       "221",
-		"Ecobank":            "050",
+		"access bank":             "044",
+		"access":                  "044",
+		"united bank for africa":  "033",
+		"uba":                     "033",
+		"guaranty trust bank":     "058",
+		"gtb":                     "058",
+		"gtbank":                  "058",
+		"first bank":              "011",
+		"zenith bank":             "057",
+		"zenith":                  "057",
+		"fidelity bank":           "070",
+		"union bank":              "032",
+		"stanbic ibtc":            "221",
+		"ecobank":                 "050",
 	}
 
-	// Try exact match first
-	if code, ok := bankMap[bankName]; ok {
-		return code
+	// Case-insensitive lookup
+	normalizedName := strings.ToLower(strings.TrimSpace(bankName))
+	if code, ok := bankMap[normalizedName]; ok {
+		return code, nil
 	}
 
-	// Try case-insensitive match
+	// Try prefix match (case-insensitive)
 	for name, code := range bankMap {
-		if len(bankName) >= len(name) && bankName[:len(name)] == name {
-			return code
+		if strings.HasPrefix(normalizedName, name) {
+			return code, nil
 		}
 	}
 
-	// Default to Access Bank code if not found
-	slog.Warn("Bank code not found, using default", "bank_name", bankName)
-	return "044"
+	return "", fmt.Errorf("unsupported bank name: %q", bankName)
 }
