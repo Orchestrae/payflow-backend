@@ -111,6 +111,7 @@ func BusinessFromDomain(b *domain.Business) *Business {
 type DeductionRule struct {
 	gorm.Model
 	BusinessID       uint   `gorm:"uniqueIndex:idx_business_deduction_name;not null"`
+	CadreID          uint   `gorm:"index"`
 	Name             string `gorm:"uniqueIndex:idx_business_deduction_name;not null"`
 	Type             domain.DeductionRuleType
 	Value            float64
@@ -126,6 +127,7 @@ func (dr *DeductionRule) ToDomain() *domain.DeductionRule {
 			DeletedAt: dr.Model.DeletedAt,
 		},
 		BusinessID:       dr.BusinessID,
+		CadreID:          dr.CadreID,
 		Name:             dr.Name,
 		Type:             dr.Type,
 		Value:            dr.Value,
@@ -142,6 +144,7 @@ func DeductionRuleFromDomain(dr *domain.DeductionRule) *DeductionRule {
 			DeletedAt: dr.Model.DeletedAt,
 		},
 		BusinessID:       dr.BusinessID,
+		CadreID:          dr.CadreID,
 		Name:             dr.Name,
 		Type:             dr.Type,
 		Value:            dr.Value,
@@ -155,7 +158,7 @@ type Cadre struct {
 	BusinessID        uint   `gorm:"uniqueIndex:idx_business_cadre_name;not null"`
 	Name              string `gorm:"uniqueIndex:idx_business_cadre_name;not null"`
 	EarningComponents []EarningComponent
-	DeductionRules    []DeductionRule `gorm:"many2many:cadre_deduction_rules;"`
+	DeductionRules    []DeductionRule `gorm:"foreignKey:CadreID"`
 }
 
 func (c *Cadre) ToDomain() *domain.Cadre {
