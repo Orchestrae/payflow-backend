@@ -8,7 +8,7 @@
 test_*.sh
 
 # Binary files
-server
+/server
 *.exe
 *.exe~
 *.dll
