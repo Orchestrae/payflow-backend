@@ -84,11 +84,9 @@ func NewRouter(
 	r := chi.NewRouter()
 
 	// --- Global Middleware ---
-	// A more secure CORS policy for production would be:
-	// AllowedOrigins: []string{"https://app.payflow.com", "https://www.payflow.com"}
 	r.Use(cors.Handler(cors.Options{
-		AllowedOrigins:   []string{"http://*", "https://*"}, // Permissive for local dev
-		AllowedMethods:   []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
+		AllowedOrigins:   []string{"https://payflowio.netlify.app", "http://localhost:3000", "http://localhost:5173"},
+		AllowedMethods:   []string{"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"},
 		AllowedHeaders:   []string{"Accept", "Authorization", "Content-Type", "X-CSRF-Token"},
 		ExposedHeaders:   []string{"Link"},
 		AllowCredentials: true,
