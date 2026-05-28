@@ -13,8 +13,11 @@ type SingleTransferRequest struct {
 	Narration string `json:"narration,omitempty"`
 
 	// Optional: Custom reference (auto-generated if not provided)
-	// Business users typically don't need to provide this
 	Reference string `json:"reference,omitempty"`
+
+	// Optional: Preferred provider ("korapay", "paystack", "vfd")
+	// If not specified, uses the default provider with fallback chain
+	Provider string `json:"provider,omitempty"`
 }
 
 // BatchTransferRequest represents a batch of transfer requests.

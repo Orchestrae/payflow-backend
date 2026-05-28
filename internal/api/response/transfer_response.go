@@ -9,6 +9,7 @@ type SingleTransferResponse struct {
 	Status         string `json:"status"`
 	Message        string `json:"message,omitempty"`
 	Provider       string `json:"provider,omitempty"`
+	Currency       string `json:"currency,omitempty"`
 	Fee            string `json:"fee,omitempty"`
 	ProcessingTime string `json:"processing_time"`
 	Error          string `json:"error,omitempty"`

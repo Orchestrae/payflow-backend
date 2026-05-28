@@ -44,7 +44,6 @@ func (h *CadreHandler) CreateCadre(w http.ResponseWriter, r *http.Request) {
 		BusinessID:        claims.BusinessID,
 		Name:              utils.SanitizeString(req.Name),
 		EarningComponents: req.EarningComponents,
-		//DeductionRules:    req.DeductionRuleIDs,
 	}
 
 	createdCadre, err := h.cadreService.CreateCadre(r.Context(), cadre)

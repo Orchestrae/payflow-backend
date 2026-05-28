@@ -3,6 +3,7 @@ package handler
 
 import (
 	"encoding/json"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"payflow/internal/api/middleware"
@@ -54,7 +55,13 @@ func (h *EmployeeHandler) CreateEmployee(w http.ResponseWriter, r *http.Request)
 		BankName:          req.BankName,
 		BankCode:          req.BankCode,
 		BankAccountNumber: req.BankAccountNumber,
-		IsActive:          true, // New employees are active by default
+		IsActive:          true,
+		TIN:               req.TIN,
+		PensionRSAPIN:     req.PensionRSAPIN,
+		NHFNumber:         req.NHFNumber,
+	}
+	if req.AnnualRentPaid != nil {
+		employee.AnnualRentPaid = *req.AnnualRentPaid
 	}
 
 	createdEmployee, err := h.employeeService.CreateEmployee(r.Context(), employee)
@@ -140,6 +147,15 @@ func (h *EmployeeHandler) UpdateEmployee(w http.ResponseWriter, r *http.Request)
 		BankName:          req.BankName,
 		BankCode:          req.BankCode,
 		BankAccountNumber: req.BankAccountNumber,
+		TIN:               req.TIN,
+		PensionRSAPIN:     req.PensionRSAPIN,
+		NHFNumber:         req.NHFNumber,
+	}
+	if req.IsActive != nil {
+		employee.IsActive = *req.IsActive
+	}
+	if req.AnnualRentPaid != nil {
+		employee.AnnualRentPaid = *req.AnnualRentPaid
 	}
 
 	updatedEmployee, err := h.employeeService.UpdateEmployee(r.Context(), employee)
@@ -149,6 +165,59 @@ func (h *EmployeeHandler) UpdateEmployee(w http.ResponseWriter, r *http.Request)
 	}
 
 	response.RespondWithJSON(w, http.StatusOK, updatedEmployee)
+}
+
+// ImportEmployees handles POST /employees/import (CSV upload)
+func (h *EmployeeHandler) ImportEmployees(w http.ResponseWriter, r *http.Request) {
+	claims, ok := middleware.GetClaimsFromContext(r.Context())
+	if !ok {
+		response.RespondWithError(w, domain.ErrInternalServer)
+		return
+	}
+
+	// Parse multipart form (max 5MB)
+	if err := r.ParseMultipartForm(5 << 20); err != nil {
+		response.RespondWithError(w, domain.ErrValidationFailed)
+		return
+	}
+
+	file, _, err := r.FormFile("file")
+	if err != nil {
+		response.RespondWithError(w, domain.ErrValidationFailed)
+		return
+	}
+	defer file.Close()
+
+	// Parse CSV
+	employees, parseErrors, err := service.ParseEmployeeCSV(file)
+	if err != nil {
+		response.RespondWithJSON(w, http.StatusBadRequest, map[string]interface{}{
+			"error":  err.Error(),
+			"errors": parseErrors,
+		})
+		return
+	}
+
+	// Set business ID and create each employee
+	var created int
+	var createErrors []string
+	for i, emp := range employees {
+		emp.BusinessID = claims.BusinessID
+		emp.IsActive = true
+		if _, err := h.employeeService.CreateEmployee(r.Context(), emp); err != nil {
+			createErrors = append(createErrors, fmt.Sprintf("row %d (%s): %v", i+2, emp.Email, err))
+		} else {
+			created++
+		}
+	}
+
+	allErrors := append(parseErrors, createErrors...)
+	response.RespondWithJSON(w, http.StatusOK, map[string]interface{}{
+		"created": created,
+		"failed":  len(allErrors),
+		"total":   len(employees) + len(parseErrors),
+		"errors":  allErrors,
+	})
 }
 
 // DeactivateEmployee handles PATCH /employees/{employeeID}/deactivate

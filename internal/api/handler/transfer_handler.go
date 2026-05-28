@@ -52,12 +52,13 @@ func (h *TransferHandler) HandleSingleTransfer(w http.ResponseWriter, r *http.Re
 
 	// Convert to domain request - simple mapping, service handles the rest
 	domainReq := &domain.SingleTransferRequest{
-		Reference:     req.Reference, // Optional - service will generate if empty
-		Amount:        req.Amount,
-		BankCode:      req.BankCode,
-		AccountNumber: req.AccountNumber,
-		AccountName:   req.AccountName,
-		Narration:     req.Narration,
+		Reference:         req.Reference,
+		Amount:            req.Amount,
+		BankCode:          req.BankCode,
+		AccountNumber:     req.AccountNumber,
+		AccountName:       req.AccountName,
+		Narration:         req.Narration,
+		PreferredProvider: domain.ProviderName(req.Provider),
 	}
 
 	// Execute the transfer
@@ -76,6 +77,7 @@ func (h *TransferHandler) HandleSingleTransfer(w http.ResponseWriter, r *http.Re
 		Status:         result.Status,
 		Message:        result.Message,
 		Provider:       string(result.Provider),
+		Currency:       "NGN",
 		Fee:            result.Fee,
 		ProcessingTime: result.ProcessingTime.String(),
 		Error:          result.Error,
@@ -215,4 +217,41 @@ func (h *TransferHandler) HandleListTransfers(w http.ResponseWriter, r *http.Req
 		"page":      page,
 		"limit":     limit,
 	})
+}
+
+// HandleRetryTransfer retries a failed transfer
+// POST /v1/transfers/{id}/retry
+func (h *TransferHandler) HandleRetryTransfer(w http.ResponseWriter, r *http.Request) {
+	idStr := chi.URLParam(r, "id")
+	id, err := strconv.ParseUint(idStr, 10, 32)
+	if err != nil {
+		response.RespondWithError(w, domain.ErrValidationFailed)
+		return
+	}
+
+	claims, ok := middleware.GetClaimsFromContext(r.Context())
+	if !ok {
+		response.RespondWithError(w, domain.ErrUnauthorized)
+		return
+	}
+
+	result, err := h.transferService.RetryTransfer(r.Context(), claims.BusinessID, uint(id))
+	if err != nil {
+		response.RespondWithError(w, err)
+		return
+	}
+
+	transferResponse := response.SingleTransferResponse{
+		Success:       result.Success,
+		TransferID:    result.TransferID,
+		Reference:     result.Reference,
+		TransactionID: result.TransactionID,
+		Status:        result.Status,
+		Message:       result.Message,
+		Provider:      string(result.Provider),
+		Currency:      "NGN",
+		Fee:           result.Fee,
+	}
+
+	response.RespondWithJSON(w, http.StatusOK, transferResponse)
 }
