@@ -21,7 +21,8 @@ type Business struct {
 	PensionEnabled bool `gorm:"default:false" json:"pension_enabled"`
 	NHFEnabled     bool `gorm:"default:false" json:"nhf_enabled"`
 	NSITFEnabled   bool `gorm:"default:false" json:"nsitf_enabled"`
-	PAYEEnabled    bool `gorm:"default:true" json:"paye_enabled"`
+	PAYEEnabled    bool   `gorm:"default:true" json:"paye_enabled"`
+	Currency       string `gorm:"size:10;default:'NGN'" json:"currency"`
 
 	// Relationships (without foreign key constraints to avoid circular dependency)
 	Admin *User  `gorm:"-" json:"-"`
