@@ -103,6 +103,9 @@ func NewRouter(
 	businessSvc service.BusinessService,
 	dashboardSvc service.DashboardService,
 	auditSvc service.AuditService,
+	notifCenterSvc service.NotificationCenterService,
+	verificationSvc service.AccountVerificationService,
+	loanSvc service.LoanService,
 	accountHolderSvc service.AccountHolderService,
 	koraClient *korapay.Client,
 	transferRepo repository.TransferRepository,
@@ -144,6 +147,10 @@ func NewRouter(
 	businessHandler := handler.NewBusinessHandler(businessSvc)
 	dashboardHandler := handler.NewDashboardHandler(dashboardSvc)
 	auditHandler := handler.NewAuditHandler(auditSvc)
+	notifHandler := handler.NewNotificationHandler(notifCenterSvc)
+	verificationHandler := handler.NewVerificationHandler(verificationSvc)
+	loanHandler := handler.NewLoanHandler(loanSvc)
+	selfServiceHandler := handler.NewSelfServiceHandler(employeeSvc, payrollSvc)
 	reportHandler := handler.NewReportHandler(payrollSvc, businessRepo)
 	walletHandler := handler.NewWalletHandler(walletSvc, accountHolderSvc, cfg, koraClient)
 
@@ -194,6 +201,32 @@ func NewRouter(
 
 		// --- Dashboard (all authenticated roles) ---
 		r.Get("/dashboard", dashboardHandler.GetSummary)
+
+		// --- Notifications (all authenticated roles) ---
+		r.Route("/notifications", func(r chi.Router) {
+			r.Get("/", notifHandler.ListNotifications)
+			r.Get("/unread-count", notifHandler.GetUnreadCount)
+			r.Patch("/{id}/read", notifHandler.MarkAsRead)
+			r.Patch("/read-all", notifHandler.MarkAllAsRead)
+		})
+
+		// --- Bank Account Verification ---
+		r.Get("/verify/bank-account", verificationHandler.HandleVerifyBankAccount)
+
+		// --- Employee Self-Service ---
+		r.Route("/me", func(r chi.Router) {
+			r.Get("/profile", selfServiceHandler.GetProfile)
+			r.Patch("/bank-details", selfServiceHandler.UpdateBankDetails)
+			r.Get("/payslips", selfServiceHandler.GetPayslips)
+		})
+
+		// --- Loans (Admin/Operator) ---
+		r.Route("/loans", func(r chi.Router) {
+			r.Use(middleware.RoleMiddleware(domain.RoleAdmin, domain.RoleOperator))
+			r.Post("/", loanHandler.CreateLoan)
+			r.Get("/", loanHandler.ListLoans)
+			r.Patch("/{id}/cancel", loanHandler.CancelLoan)
+		})
 
 		// --- Admin & Operator Routes ---
 		// These routes are for day-to-day operations.

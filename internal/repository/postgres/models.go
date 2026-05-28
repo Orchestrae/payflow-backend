@@ -25,7 +25,8 @@ type Business struct {
 	PensionEnabled          bool `gorm:"default:false"`
 	NHFEnabled              bool `gorm:"default:false"`
 	NSITFEnabled            bool `gorm:"default:false"`
-	PAYEEnabled             bool `gorm:"default:true"`
+	PAYEEnabled             bool   `gorm:"default:true"`
+	Currency                string `gorm:"size:10;default:'NGN'"`
 	Users                   []User `gorm:"foreignKey:BusinessID"`
 }
 
@@ -104,6 +105,7 @@ func (b *Business) ToDomain() *domain.Business {
 		NHFEnabled:              b.NHFEnabled,
 		NSITFEnabled:            b.NSITFEnabled,
 		PAYEEnabled:             b.PAYEEnabled,
+		Currency:                b.Currency,
 	}
 }
 
@@ -128,6 +130,7 @@ func BusinessFromDomain(b *domain.Business) *Business {
 		NHFEnabled:              b.NHFEnabled,
 		NSITFEnabled:            b.NSITFEnabled,
 		PAYEEnabled:             b.PAYEEnabled,
+		Currency:                b.Currency,
 	}
 }
 
@@ -281,6 +284,7 @@ type Employee struct {
 	BankName          string
 	BankCode          string `gorm:"size:10"`
 	BankAccountNumber string
+	PhoneNumber       string  `gorm:"size:20"`
 	IsActive          bool    `gorm:"default:true"`
 	TIN               *string `gorm:"size:20"`
 	PensionRSAPIN     *string `gorm:"size:30"`
@@ -305,6 +309,7 @@ func (e *Employee) ToDomain() *domain.Employee {
 		BankName:          e.BankName,
 		BankCode:          e.BankCode,
 		BankAccountNumber: e.BankAccountNumber,
+		PhoneNumber:       e.PhoneNumber,
 		IsActive:          e.IsActive,
 		TIN:               e.TIN,
 		PensionRSAPIN:     e.PensionRSAPIN,
@@ -329,6 +334,7 @@ func EmployeeFromDomain(e *domain.Employee) *Employee {
 		BankName:          e.BankName,
 		BankCode:          e.BankCode,
 		BankAccountNumber: e.BankAccountNumber,
+		PhoneNumber:       e.PhoneNumber,
 		IsActive:          e.IsActive,
 		TIN:               e.TIN,
 		PensionRSAPIN:     e.PensionRSAPIN,

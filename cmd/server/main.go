@@ -182,7 +182,17 @@ func main() {
 	dashboardSvc := service.NewDashboardService(employeeRepo, payrollRepo, walletRepo)
 	auditRepo := postgres.NewAuditRepository(db)
 	auditSvc := service.NewAuditService(auditRepo)
-	log.Info().Msg("Business service initialized")
+	notifRepo := postgres.NewNotificationRepository(db)
+	notifCenterSvc := service.NewNotificationCenterService(notifRepo, userRepo)
+	// Account verification (uses Paystack if configured)
+	var verificationPaystackClient *paystack.Client
+	if cfg.PaystackSecretKey != "" {
+		verificationPaystackClient = paystack.NewClient(cfg.PaystackSecretKey, cfg.PaystackBaseURL)
+	}
+	verificationSvc := service.NewAccountVerificationService(verificationPaystackClient)
+	loanRepo := postgres.NewLoanRepository(db)
+	loanSvc := service.NewLoanService(loanRepo)
+	log.Info().Msg("Business, audit, notification services initialized")
 
 	// Initialize wallet service with virtual account provider
 	walletSvc := service.NewWalletService(walletRepo, walletTxRepo, korapayVirtualAccountProvider)
@@ -242,7 +252,7 @@ func main() {
 	}
 
 	// --- Phase 5: API Router & Server Startup ---
-	router := api.NewRouter(cfg, db, redisClient, authSvc, employeeSvc, cadreSvc, deductionRuleSvc, payrollSvc, webhookSvc, transferSvc, transferSvcNew, walletSvc, businessSvc, dashboardSvc, auditSvc, accountHolderSvc, koraClient, newTransferRepo, businessRepo)
+	router := api.NewRouter(cfg, db, redisClient, authSvc, employeeSvc, cadreSvc, deductionRuleSvc, payrollSvc, webhookSvc, transferSvc, transferSvcNew, walletSvc, businessSvc, dashboardSvc, auditSvc, notifCenterSvc, verificationSvc, loanSvc, accountHolderSvc, koraClient, newTransferRepo, businessRepo)
 	log.Info().Msg("API router initialized")
 
 	server := &http.Server{

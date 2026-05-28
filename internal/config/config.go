@@ -58,6 +58,10 @@ type Config struct {
 	// Provider Toggle
 	EnabledProviders string `mapstructure:"ENABLED_PROVIDERS"`
 
+	// SMS (Termii)
+	TermiiAPIKey   string `mapstructure:"TERMII_API_KEY"`
+	TermiiSenderID string `mapstructure:"TERMII_SENDER_ID"`
+
 	// VFD Webhook Verification
 	VFDWebhookSecret string `mapstructure:"VFD_WEBHOOK_SECRET"`
 

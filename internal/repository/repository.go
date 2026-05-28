@@ -138,6 +138,47 @@ type WalletTransactionRepository interface {
 	WithTx(tx *gorm.DB) WalletTransactionRepository
 }
 
+// LoanRepository defines the interface for employee loan operations
+type LoanRepository interface {
+	Create(ctx context.Context, loan *domain.EmployeeLoan) error
+	FindByID(ctx context.Context, id uint) (*domain.EmployeeLoan, error)
+	FindByBusinessID(ctx context.Context, businessID uint, page, limit int) ([]*domain.EmployeeLoan, int, error)
+	FindActiveByEmployeeID(ctx context.Context, employeeID uint) ([]*domain.EmployeeLoan, error)
+	Update(ctx context.Context, loan *domain.EmployeeLoan) error
+}
+
+// NotificationRepository defines the interface for notification operations
+type NotificationRepository interface {
+	Create(ctx context.Context, n *domain.Notification) error
+	FindByUserID(ctx context.Context, userID uint, page, limit int) ([]*domain.Notification, int, error)
+	CountUnread(ctx context.Context, userID uint) (int, error)
+	MarkAsRead(ctx context.Context, id, userID uint) error
+	MarkAllAsRead(ctx context.Context, userID uint) error
+}
+
+// LeaveTypeRepository defines the interface for leave type operations
+type LeaveTypeRepository interface {
+	Create(ctx context.Context, lt *domain.LeaveType) error
+	FindByID(ctx context.Context, id uint) (*domain.LeaveType, error)
+	FindByBusinessID(ctx context.Context, businessID uint) ([]*domain.LeaveType, error)
+}
+
+// LeaveRequestRepository defines the interface for leave request operations
+type LeaveRequestRepository interface {
+	Create(ctx context.Context, req *domain.LeaveRequest) error
+	FindByID(ctx context.Context, id uint) (*domain.LeaveRequest, error)
+	FindByBusinessID(ctx context.Context, businessID uint, page, limit int) ([]*domain.LeaveRequest, int, error)
+	Update(ctx context.Context, req *domain.LeaveRequest) error
+}
+
+// LeaveBalanceRepository defines the interface for leave balance operations
+type LeaveBalanceRepository interface {
+	Create(ctx context.Context, balance *domain.LeaveBalance) error
+	FindByEmployeeAndType(ctx context.Context, employeeID, leaveTypeID uint, year int) (*domain.LeaveBalance, error)
+	FindByEmployee(ctx context.Context, employeeID uint, year int) ([]*domain.LeaveBalance, error)
+	Update(ctx context.Context, balance *domain.LeaveBalance) error
+}
+
 // AuditRepository defines the interface for audit log operations
 type AuditRepository interface {
 	Create(ctx context.Context, log *domain.AuditLog) error
