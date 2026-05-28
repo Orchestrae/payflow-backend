@@ -39,6 +39,10 @@ func main() {
 		log.Fatal().Err(err).Msg("Failed to load configuration")
 	}
 
+	// Ensure JWT_SECRET is set (Viper may miss it on some PaaS — explicit fallback)
+	if cfg.JWTSecret == "" {
+		cfg.JWTSecret = os.Getenv("JWT_SECRET")
+	}
 	if cfg.JWTSecret == "" {
 		log.Fatal().Msg("JWT_SECRET is required — set it in environment or .env file")
 	}
