@@ -20,18 +20,26 @@ type Business struct {
 	DirectorBVN             *string
 	VFDAccountNumber        *string
 	VFDAccountName          *string
-	PayrollRequiresApproval bool   `gorm:"default:true"`
-	PayrollAutoProcess      bool   `gorm:"default:false"`
+	PayrollRequiresApproval bool `gorm:"default:true"`
+	PayrollAutoProcess      bool `gorm:"default:false"`
+	PensionEnabled          bool `gorm:"default:false"`
+	NHFEnabled              bool `gorm:"default:false"`
+	NSITFEnabled            bool `gorm:"default:false"`
+	PAYEEnabled             bool `gorm:"default:true"`
 	Users                   []User `gorm:"foreignKey:BusinessID"`
 }
 
 type User struct {
 	gorm.Model
-	BusinessID   uint
-	Email        string `gorm:"uniqueIndex"`
-	PasswordHash string
-	Role         domain.UserRole
-	IsVerified   bool
+	BusinessID       uint
+	Email            string `gorm:"uniqueIndex"`
+	PasswordHash     string
+	Role             domain.UserRole
+	IsVerified       bool
+	ResetToken       *string    `gorm:"size:100;index"`
+	ResetTokenExpiry *time.Time
+	InviteToken      *string    `gorm:"size:100;index"`
+	InviteAccepted   bool       `gorm:"default:false"`
 }
 
 // ToDomain converts a postgres.User model to a domain.User model.
@@ -46,8 +54,12 @@ func (u *User) ToDomain() *domain.User {
 		BusinessID:   u.BusinessID,
 		Email:        u.Email,
 		PasswordHash: u.PasswordHash,
-		Role:         u.Role,
-		IsVerified:   u.IsVerified,
+		Role:             u.Role,
+		IsVerified:       u.IsVerified,
+		ResetToken:       u.ResetToken,
+		ResetTokenExpiry: u.ResetTokenExpiry,
+		InviteToken:      u.InviteToken,
+		InviteAccepted:   u.InviteAccepted,
 	}
 }
 
@@ -59,11 +71,15 @@ func UserFromDomain(u *domain.User) *User {
 			UpdatedAt: u.Model.UpdatedAt,
 			DeletedAt: u.Model.DeletedAt,
 		},
-		BusinessID:   u.BusinessID,
-		Email:        u.Email,
-		PasswordHash: u.PasswordHash,
-		Role:         u.Role,
-		IsVerified:   u.IsVerified,
+		BusinessID:       u.BusinessID,
+		Email:            u.Email,
+		PasswordHash:     u.PasswordHash,
+		Role:             u.Role,
+		IsVerified:       u.IsVerified,
+		ResetToken:       u.ResetToken,
+		ResetTokenExpiry: u.ResetTokenExpiry,
+		InviteToken:      u.InviteToken,
+		InviteAccepted:   u.InviteAccepted,
 	}
 }
 
@@ -84,6 +100,10 @@ func (b *Business) ToDomain() *domain.Business {
 		VFDAccountName:          b.VFDAccountName,
 		PayrollRequiresApproval: b.PayrollRequiresApproval,
 		PayrollAutoProcess:      b.PayrollAutoProcess,
+		PensionEnabled:          b.PensionEnabled,
+		NHFEnabled:              b.NHFEnabled,
+		NSITFEnabled:            b.NSITFEnabled,
+		PAYEEnabled:             b.PAYEEnabled,
 	}
 }
 
@@ -104,6 +124,10 @@ func BusinessFromDomain(b *domain.Business) *Business {
 		VFDAccountName:          b.VFDAccountName,
 		PayrollRequiresApproval: b.PayrollRequiresApproval,
 		PayrollAutoProcess:      b.PayrollAutoProcess,
+		PensionEnabled:          b.PensionEnabled,
+		NHFEnabled:              b.NHFEnabled,
+		NSITFEnabled:            b.NSITFEnabled,
+		PAYEEnabled:             b.PAYEEnabled,
 	}
 }
 
@@ -257,8 +281,12 @@ type Employee struct {
 	BankName          string
 	BankCode          string `gorm:"size:10"`
 	BankAccountNumber string
-	IsActive          bool  `gorm:"default:true"`
-	Cadre             Cadre `gorm:"foreignKey:CadreID"`
+	IsActive          bool    `gorm:"default:true"`
+	TIN               *string `gorm:"size:20"`
+	PensionRSAPIN     *string `gorm:"size:30"`
+	NHFNumber         *string `gorm:"size:30"`
+	AnnualRentPaid    int64   `gorm:"default:0"`
+	Cadre             Cadre   `gorm:"foreignKey:CadreID"`
 }
 
 func (e *Employee) ToDomain() *domain.Employee {
@@ -278,6 +306,10 @@ func (e *Employee) ToDomain() *domain.Employee {
 		BankCode:          e.BankCode,
 		BankAccountNumber: e.BankAccountNumber,
 		IsActive:          e.IsActive,
+		TIN:               e.TIN,
+		PensionRSAPIN:     e.PensionRSAPIN,
+		NHFNumber:         e.NHFNumber,
+		AnnualRentPaid:    e.AnnualRentPaid,
 		Cadre:             domCadre,
 	}
 }
@@ -298,6 +330,10 @@ func EmployeeFromDomain(e *domain.Employee) *Employee {
 		BankCode:          e.BankCode,
 		BankAccountNumber: e.BankAccountNumber,
 		IsActive:          e.IsActive,
+		TIN:               e.TIN,
+		PensionRSAPIN:     e.PensionRSAPIN,
+		NHFNumber:         e.NHFNumber,
+		AnnualRentPaid:    e.AnnualRentPaid,
 	}
 }
 

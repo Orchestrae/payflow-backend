@@ -12,11 +12,21 @@ type Cadre struct {
 	Employees         []Employee         `gorm:"foreignKey:CadreID" json:"employees,omitempty"`
 }
 
+type EarningComponentType string
+
+const (
+	ComponentBasic     EarningComponentType = "basic"
+	ComponentHousing   EarningComponentType = "housing"
+	ComponentTransport EarningComponentType = "transport"
+	ComponentOther     EarningComponentType = "other"
+)
+
 type EarningComponent struct {
 	Model
-	CadreID uint   `gorm:"index" json:"cadre_id"`
-	Name    string `gorm:"size:255" json:"name"`
-	Amount  int64  `gorm:"" json:"amount"`
+	CadreID       uint                 `gorm:"index" json:"cadre_id"`
+	Name          string               `gorm:"size:255" json:"name"`
+	Amount        int64                `gorm:"" json:"amount"`
+	ComponentType EarningComponentType `gorm:"type:varchar(20);default:'other'" json:"component_type"`
 }
 
 type DeductionRuleType string

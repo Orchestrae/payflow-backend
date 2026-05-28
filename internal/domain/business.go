@@ -17,6 +17,12 @@ type Business struct {
 	PayrollRequiresApproval bool `gorm:"default:true" json:"payroll_requires_approval"`
 	PayrollAutoProcess      bool `gorm:"default:false" json:"payroll_auto_process"`
 
+	// Statutory Configuration
+	PensionEnabled bool `gorm:"default:false" json:"pension_enabled"`
+	NHFEnabled     bool `gorm:"default:false" json:"nhf_enabled"`
+	NSITFEnabled   bool `gorm:"default:false" json:"nsitf_enabled"`
+	PAYEEnabled    bool `gorm:"default:true" json:"paye_enabled"`
+
 	// Relationships (without foreign key constraints to avoid circular dependency)
 	Admin *User  `gorm:"-" json:"-"`
 	Users []User `gorm:"-" json:"-"`

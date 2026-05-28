@@ -27,6 +27,8 @@ type PayrollRun struct {
 	ProcessedAt      *time.Time    `json:"processed_at,omitempty"`
 	PaymentReference string        `gorm:"size:255" json:"payment_reference,omitempty"`
 	RejectionReason  string        `gorm:"size:500" json:"rejection_reason,omitempty"`
+	TotalEmployerCosts int64       `gorm:"default:0" json:"total_employer_costs"`
+	TotalCostToCompany int64       `gorm:"default:0" json:"total_cost_to_company"`
 
 	// Relationships
 	Entries []PayrollRunEntry `gorm:"foreignKey:PayrollRunID" json:"entries"`
@@ -41,6 +43,12 @@ type PayrollRunEntry struct {
 	Bonuses         int64 `gorm:"default:0" json:"bonuses"`
 	NetPay          int64 `gorm:"default:0" json:"net_pay"`
 
+	// Employer costs (do NOT reduce employee net pay)
+	EmployerPension    int64 `gorm:"default:0" json:"employer_pension"`
+	EmployerNSITF      int64 `gorm:"default:0" json:"employer_nsitf"`
+	TotalEmployerCost  int64 `gorm:"default:0" json:"total_employer_cost"`
+	TotalCostToCompany int64 `gorm:"default:0" json:"total_cost_to_company"`
+
 	// Relationships
 	Employee *Employee               `gorm:"foreignKey:EmployeeID" json:"employee,omitempty"`
 	Details  []PayrollRunEntryDetail `gorm:"foreignKey:PayrollRunEntryID" json:"details"`
@@ -49,9 +57,11 @@ type PayrollRunEntry struct {
 type PayrollEntryDetailType string
 
 const (
-	DetailTypeEarning   PayrollEntryDetailType = "earning"
-	DetailTypeDeduction PayrollEntryDetailType = "deduction"
-	DetailTypeBonus     PayrollEntryDetailType = "bonus"
+	DetailTypeEarning            PayrollEntryDetailType = "earning"
+	DetailTypeDeduction          PayrollEntryDetailType = "deduction"
+	DetailTypeBonus              PayrollEntryDetailType = "bonus"
+	DetailTypeStatutoryDeduction PayrollEntryDetailType = "statutory_deduction"
+	DetailTypeEmployerCost       PayrollEntryDetailType = "employer_cost"
 )
 
 type PayrollRunEntryDetail struct {

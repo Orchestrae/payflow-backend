@@ -1,0 +1,15 @@
+ALTER TABLE earning_components DROP COLUMN IF EXISTS component_type;
+ALTER TABLE employees DROP COLUMN IF EXISTS tin;
+ALTER TABLE employees DROP COLUMN IF EXISTS pension_rsa_pin;
+ALTER TABLE employees DROP COLUMN IF EXISTS nhf_number;
+ALTER TABLE employees DROP COLUMN IF EXISTS annual_rent_paid;
+ALTER TABLE businesses DROP COLUMN IF EXISTS pension_enabled;
+ALTER TABLE businesses DROP COLUMN IF EXISTS nhf_enabled;
+ALTER TABLE businesses DROP COLUMN IF EXISTS nsitf_enabled;
+ALTER TABLE businesses DROP COLUMN IF EXISTS paye_enabled;
+ALTER TABLE payroll_run_entries DROP COLUMN IF EXISTS employer_pension;
+ALTER TABLE payroll_run_entries DROP COLUMN IF EXISTS employer_nsitf;
+ALTER TABLE payroll_run_entries DROP COLUMN IF EXISTS total_employer_cost;
+ALTER TABLE payroll_run_entries DROP COLUMN IF EXISTS total_cost_to_company;
+ALTER TABLE payroll_runs DROP COLUMN IF EXISTS total_employer_costs;
+ALTER TABLE payroll_runs DROP COLUMN IF EXISTS total_cost_to_company;
