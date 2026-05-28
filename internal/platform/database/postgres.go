@@ -123,8 +123,11 @@ func AutoMigrateAll(db *gorm.DB) error {
 	// Create custom types first (ignore 'already exists' errors)
 	enumStatements := []string{
 		`CREATE TYPE user_role AS ENUM ('admin', 'operator', 'approver')`,
+		`ALTER TYPE user_role ADD VALUE IF NOT EXISTS 'employee'`,
 		`CREATE TYPE payroll_status AS ENUM ('draft', 'pending_approval', 'approved', 'processing', 'completed', 'rejected', 'failed')`,
 		`CREATE TYPE payroll_entry_detail_type AS ENUM ('earning', 'deduction', 'bonus')`,
+		`ALTER TYPE payroll_entry_detail_type ADD VALUE IF NOT EXISTS 'statutory_deduction'`,
+		`ALTER TYPE payroll_entry_detail_type ADD VALUE IF NOT EXISTS 'employer_cost'`,
 	}
 	for _, stmt := range enumStatements {
 		err := db.Exec(stmt).Error
@@ -144,7 +147,15 @@ func AutoMigrateAll(db *gorm.DB) error {
 		&domain.PayrollRun{},
 		&domain.PayrollRunEntry{},
 		&domain.PayrollRunEntryDetail{},
-		&domain.Transfer{}, // New provider-agnostic transfer model
+		&domain.Transfer{},
+		&domain.BusinessWallet{},
+		&domain.WalletTransaction{},
+		&domain.AuditLog{},
+		&domain.Notification{},
+		&domain.EmployeeLoan{},
+		&domain.LeaveType{},
+		&domain.LeaveRequest{},
+		&domain.LeaveBalance{},
 	}
 
 	for _, model := range models {
