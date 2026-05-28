@@ -162,82 +162,52 @@ func (s *walletService) CheckBalance(ctx context.Context, businessID uint, amoun
 
 // LockBalance locks a specified amount for a pending transfer
 func (s *walletService) LockBalance(ctx context.Context, businessID uint, amount int64) error {
-	wallet, err := s.walletRepo.FindByBusinessID(ctx, businessID)
+	_, err := s.walletRepo.IncrementLocked(ctx, businessID, amount)
 	if err != nil {
-		return fmt.Errorf("failed to get wallet: %w", err)
+		return fmt.Errorf("insufficient balance or failed to lock: %w", err)
 	}
-
-	// Check available balance
-	availableBalance := wallet.Balance - wallet.LockedBalance
-	if availableBalance < amount {
-		return fmt.Errorf("insufficient balance: available %d, required %d", availableBalance, amount)
-	}
-
-	// Lock the amount
-	wallet.LockedBalance += amount
-	if err := s.walletRepo.Update(ctx, wallet); err != nil {
-		return fmt.Errorf("failed to lock balance: %w", err)
-	}
-
 	return nil
 }
 
 // UnlockBalance unlocks a previously locked amount
 func (s *walletService) UnlockBalance(ctx context.Context, businessID uint, amount int64) error {
-	wallet, err := s.walletRepo.FindByBusinessID(ctx, businessID)
+	_, err := s.walletRepo.DecrementLocked(ctx, businessID, amount)
 	if err != nil {
-		return fmt.Errorf("failed to get wallet: %w", err)
-	}
-
-	// Ensure we don't unlock more than locked
-	if wallet.LockedBalance < amount {
-		amount = wallet.LockedBalance // Unlock only what's available
-	}
-
-	wallet.LockedBalance -= amount
-	if err := s.walletRepo.Update(ctx, wallet); err != nil {
 		return fmt.Errorf("failed to unlock balance: %w", err)
 	}
-
 	return nil
 }
 
 // RecordDeposit records a deposit transaction (called by webhook)
 func (s *walletService) RecordDeposit(ctx context.Context, businessID uint, notification *domain.DepositNotification) error {
+	// Check if deposit already processed (idempotency check)
+	existingTx, err := s.walletTxRepo.FindByReference(ctx, notification.Reference)
+	if err == nil && existingTx != nil {
+		return nil
+	}
+
+	// Get current balance before the atomic update
 	wallet, err := s.walletRepo.FindByBusinessID(ctx, businessID)
 	if err != nil {
 		return fmt.Errorf("wallet not found: %w", err)
 	}
-
-	// Check if deposit already processed (idempotency check)
-	existingTx, err := s.walletTxRepo.FindByReference(ctx, notification.Reference)
-	if err == nil && existingTx != nil {
-		// Deposit already recorded
-		return nil
-	}
-
-	// Calculate new balance
 	balanceBefore := wallet.Balance
-	balanceAfter := balanceBefore + notification.Amount
 
-	// Update wallet balance
-	now := time.Now()
-	wallet.Balance = balanceAfter
-	wallet.BalanceUpdatedAt = &now
-	if err := s.walletRepo.Update(ctx, wallet); err != nil {
+	// Atomically increment balance (prevents race conditions on concurrent deposits)
+	updatedWallet, err := s.walletRepo.IncrementBalance(ctx, businessID, notification.Amount)
+	if err != nil {
 		return fmt.Errorf("failed to update wallet balance: %w", err)
 	}
 
-	// Record transaction using the provider reference as our reference for idempotency.
-	// This ensures FindByReference will correctly detect duplicate deposit notifications.
+	// Record transaction
 	tx := &domain.WalletTransaction{
 		BusinessID:        businessID,
 		TransactionType:   domain.WalletTransactionDeposit,
 		Amount:            notification.Amount,
 		BalanceBefore:     balanceBefore,
-		BalanceAfter:      balanceAfter,
+		BalanceAfter:      updatedWallet.Balance,
 		Currency:          notification.Currency,
-		Reference:         notification.Reference, // Use provider reference for idempotency
+		Reference:         notification.Reference,
 		ProviderReference: notification.Reference,
 		Description:       notification.Description,
 		Status:            notification.Status,
@@ -245,9 +215,8 @@ func (s *walletService) RecordDeposit(ctx context.Context, businessID uint, noti
 	}
 
 	if err := s.walletTxRepo.Create(ctx, tx); err != nil {
-		// Rollback wallet balance update (best effort)
-		wallet.Balance = balanceBefore
-		s.walletRepo.Update(ctx, wallet)
+		// Rollback wallet balance update atomically (best effort)
+		s.walletRepo.IncrementBalance(ctx, businessID, -notification.Amount)
 		return fmt.Errorf("failed to record deposit transaction: %w", err)
 	}
 
@@ -256,51 +225,41 @@ func (s *walletService) RecordDeposit(ctx context.Context, businessID uint, noti
 
 // RecordWithdrawal records a withdrawal transaction (linked to a transfer)
 func (s *walletService) RecordWithdrawal(ctx context.Context, businessID uint, transferID uint, amount int64, fee int64, reference string, providerReference string) error {
-	wallet, err := s.walletRepo.FindByBusinessID(ctx, businessID)
-	if err != nil {
-		return fmt.Errorf("wallet not found: %w", err)
-	}
-
 	// Idempotency check: if a withdrawal with this reference already exists, skip
 	existingTx, err := s.walletTxRepo.FindByReference(ctx, reference)
 	if err == nil && existingTx != nil {
-		// Withdrawal already recorded
 		return nil
 	}
 
 	// Calculate total debit (amount + fee)
 	totalDebit := amount + fee
 
-	// Calculate new balance
+	// Get current balance for early validation and transaction record
+	wallet, err := s.walletRepo.FindByBusinessID(ctx, businessID)
+	if err != nil {
+		return fmt.Errorf("wallet not found: %w", err)
+	}
 	balanceBefore := wallet.Balance
-	balanceAfter := balanceBefore - totalDebit
 
-	// Ensure balance doesn't go negative
-	if balanceAfter < 0 {
+	if balanceBefore < totalDebit {
 		return fmt.Errorf("insufficient balance for withdrawal: balance %d, required %d", balanceBefore, totalDebit)
 	}
 
-	// Unlock the amount that was previously locked
-	if wallet.LockedBalance >= amount {
-		wallet.LockedBalance -= amount
-	}
-
-	// Update wallet balance
-	now := time.Now()
-	wallet.Balance = balanceAfter
-	wallet.BalanceUpdatedAt = &now
-	if err := s.walletRepo.Update(ctx, wallet); err != nil {
+	// Atomically deduct balance and unlock the locked amount (prevents race conditions)
+	updatedWallet, err := s.walletRepo.DecrementBalanceAndLocked(ctx, businessID, totalDebit, amount)
+	if err != nil {
 		return fmt.Errorf("failed to update wallet balance: %w", err)
 	}
 
 	// Record withdrawal transaction
+	now := time.Now()
 	tx := &domain.WalletTransaction{
 		BusinessID:        businessID,
 		TransactionType:   domain.WalletTransactionWithdrawal,
-		Amount:            totalDebit, // Include fee in total
+		Amount:            totalDebit,
 		BalanceBefore:     balanceBefore,
-		BalanceAfter:      balanceAfter,
-		Currency:          wallet.Currency,
+		BalanceAfter:      updatedWallet.Balance,
+		Currency:          updatedWallet.Currency,
 		Reference:         reference,
 		ProviderReference: providerReference,
 		Description:       fmt.Sprintf("Transfer withdrawal: %s", reference),
@@ -310,10 +269,8 @@ func (s *walletService) RecordWithdrawal(ctx context.Context, businessID uint, t
 	}
 
 	if err := s.walletTxRepo.Create(ctx, tx); err != nil {
-		// Rollback wallet balance update (best effort)
-		wallet.Balance = balanceBefore
-		wallet.LockedBalance += amount
-		s.walletRepo.Update(ctx, wallet)
+		// Rollback atomically (best effort)
+		s.walletRepo.IncrementBalance(ctx, businessID, totalDebit)
 		return fmt.Errorf("failed to record withdrawal transaction: %w", err)
 	}
 

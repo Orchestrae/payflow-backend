@@ -54,6 +54,26 @@ func (r *cadreRepository) Delete(ctx context.Context, id uint, businessID uint) 
 	return nil
 }
 
+func (r *cadreRepository) FindByIDs(ctx context.Context, ids []uint, businessID uint) ([]*domain.Cadre, error) {
+	if len(ids) == 0 {
+		return []*domain.Cadre{}, nil
+	}
+	var cadres []domain.Cadre
+	err := r.db.WithContext(ctx).
+		Preload("EarningComponents").
+		Preload("DeductionRules").
+		Where("id IN ? AND business_id = ?", ids, businessID).
+		Find(&cadres).Error
+	if err != nil {
+		return nil, err
+	}
+	result := make([]*domain.Cadre, len(cadres))
+	for i := range cadres {
+		result[i] = &cadres[i]
+	}
+	return result, nil
+}
+
 func (r *cadreRepository) FindByBusinessID(ctx context.Context, businessID uint) ([]*domain.Cadre, error) {
 	var cadres []domain.Cadre
 	err := r.db.WithContext(ctx).

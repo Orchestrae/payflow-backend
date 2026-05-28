@@ -33,6 +33,9 @@ type TransferService interface {
 
 	// ListTransfers lists transfer records for a business
 	ListTransfers(ctx context.Context, businessID uint, page, limit int) ([]*domain.Transfer, int, error)
+
+	// RetryTransfer retries a failed transfer
+	RetryTransfer(ctx context.Context, businessID uint, transferID uint) (*domain.SingleTransferResponse, error)
 }
 
 // transferService implements TransferService
@@ -187,8 +190,27 @@ func (s *transferService) ExecuteTransfer(ctx context.Context, businessID uint, 
 		}, nil
 	}
 
-	// Execute transfer via provider manager (provider selection is from environment config)
-	result, err := s.providerManager.InitiateTransfer(ctx, req)
+	// Execute transfer: use preferred provider if specified, otherwise default+fallback chain
+	var result *domain.TransferResult
+	var err error
+	if req.PreferredProvider != "" {
+		specificProvider, exists := s.providerManager.GetProvider(req.PreferredProvider)
+		if !exists {
+			transfer.Status = "failed"
+			transfer.ProcessingError = strPtr(fmt.Sprintf("provider '%s' not available", req.PreferredProvider))
+			s.transferRepo.Update(ctx, transfer)
+			return &domain.SingleTransferResponse{
+				Success:        false,
+				Reference:      req.Reference,
+				Status:         "failed",
+				Error:          fmt.Sprintf("provider '%s' not available", req.PreferredProvider),
+				ProcessingTime: time.Since(startTime),
+			}, nil
+		}
+		result, err = specificProvider.InitiateTransfer(ctx, req)
+	} else {
+		result, err = s.providerManager.InitiateTransfer(ctx, req)
+	}
 	if err != nil {
 		// Update transfer record with failure
 		transfer.Status = "failed"
@@ -301,10 +323,10 @@ func (s *transferService) ExecuteBatchTransfer(ctx context.Context, businessID u
 		}
 	}
 
-	// Create transfer records in database (pending state)
+	// Create transfer records in database (pending state) using batch insert
 	transferRecords := make([]*domain.Transfer, len(req.Transfers))
 	for i, t := range req.Transfers {
-		transfer := &domain.Transfer{
+		transferRecords[i] = &domain.Transfer{
 			BusinessID:             businessID,
 			Reference:              t.Reference,
 			Amount:                 t.Amount,
@@ -315,11 +337,9 @@ func (s *transferService) ExecuteBatchTransfer(ctx context.Context, businessID u
 			RecipientAccountName:   t.AccountName,
 			Status:                 "pending",
 		}
-		if err := s.transferRepo.Create(ctx, transfer); err != nil {
-			slog.Error("Failed to create transfer record", "reference", t.Reference, "error", err)
-			// Continue with other transfers
-		}
-		transferRecords[i] = transfer
+	}
+	if err := s.transferRepo.CreateBatch(ctx, transferRecords); err != nil {
+		slog.Error("Failed to batch-create transfer records", "error", err)
 	}
 
 	// Execute bulk transfer via provider manager (handles native vs concurrent logic)
@@ -487,6 +507,38 @@ func (s *transferService) GetTransferByID(ctx context.Context, id uint) (*domain
 // ListTransfers lists transfer records for a business
 func (s *transferService) ListTransfers(ctx context.Context, businessID uint, page, limit int) ([]*domain.Transfer, int, error) {
 	return s.transferRepo.FindByBusinessID(ctx, businessID, page, limit)
+}
+
+// RetryTransfer retries a failed transfer by re-executing it.
+func (s *transferService) RetryTransfer(ctx context.Context, businessID uint, transferID uint) (*domain.SingleTransferResponse, error) {
+	transfer, err := s.transferRepo.FindByID(ctx, transferID)
+	if err != nil {
+		return nil, domain.ErrNotFound
+	}
+
+	// Verify business ownership
+	if transfer.BusinessID != businessID {
+		return nil, domain.ErrForbidden
+	}
+
+	// Only failed transfers can be retried
+	if transfer.Status != "failed" {
+		return nil, fmt.Errorf("%w: only failed transfers can be retried (current status: %s)", domain.ErrValidationFailed, transfer.Status)
+	}
+
+	// Build a new transfer request from the existing record
+	req := &domain.SingleTransferRequest{
+		Reference:     transfer.Reference + "-retry",
+		Amount:        transfer.Amount,
+		BankCode:      transfer.RecipientBankCode,
+		AccountNumber: transfer.RecipientAccountNumber,
+		AccountName:   transfer.RecipientAccountName,
+		Narration:     transfer.Narration,
+		Currency:      transfer.Currency,
+	}
+
+	// Re-execute
+	return s.ExecuteTransfer(ctx, businessID, req)
 }
 
 // prepareTransferRequest fills in defaults and generates values for missing fields

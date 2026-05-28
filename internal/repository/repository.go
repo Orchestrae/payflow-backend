@@ -15,6 +15,8 @@ type UserRepository interface {
 	FindByEmail(ctx context.Context, email string) (*domain.User, error)
 	FindByBusinessID(ctx context.Context, businessID uint) ([]*domain.User, error)
 	FindBusinessAdmin(ctx context.Context, businessID uint) (*domain.User, error)
+	FindByResetToken(ctx context.Context, token string) (*domain.User, error)
+	FindByInviteToken(ctx context.Context, token string) (*domain.User, error)
 	Update(ctx context.Context, user *domain.User) error
 	Delete(ctx context.Context, id uint) error
 	WithTx(tx Transactioner) UserRepository
@@ -34,6 +36,7 @@ type BusinessRepository interface {
 type EmployeeRepository interface {
 	Create(ctx context.Context, employee *domain.Employee) error
 	FindByID(ctx context.Context, id uint, businessID uint) (*domain.Employee, error)
+	FindByIDs(ctx context.Context, ids []uint, businessID uint) ([]*domain.Employee, error)
 	FindByBusinessID(ctx context.Context, businessID uint) ([]*domain.Employee, error)
 	Update(ctx context.Context, employee *domain.Employee) error
 	Delete(ctx context.Context, id uint, businessID uint) error
@@ -44,6 +47,7 @@ type EmployeeRepository interface {
 type CadreRepository interface {
 	Create(ctx context.Context, cadre *domain.Cadre) error
 	FindByID(ctx context.Context, id uint, businessID uint) (*domain.Cadre, error)
+	FindByIDs(ctx context.Context, ids []uint, businessID uint) ([]*domain.Cadre, error)
 	FindByBusinessID(ctx context.Context, businessID uint) ([]*domain.Cadre, error)
 	FindCadreByBusinessID(ctx context.Context, businessID uint) (*domain.Cadre, error)
 	IsCadreNameUnique(ctx context.Context, cadre domain.Cadre) (bool, error)
@@ -102,6 +106,7 @@ type VFDTransferRepository interface {
 // TransferRepository defines the interface for transfer data operations (provider-agnostic)
 type TransferRepository interface {
 	Create(ctx context.Context, transfer *domain.Transfer) error
+	CreateBatch(ctx context.Context, transfers []*domain.Transfer) error
 	FindByID(ctx context.Context, id uint) (*domain.Transfer, error)
 	FindByReference(ctx context.Context, reference string) (*domain.Transfer, error)
 	FindByBusinessID(ctx context.Context, businessID uint, page, limit int) ([]*domain.Transfer, int, error)
@@ -116,6 +121,10 @@ type WalletRepository interface {
 	FindByBusinessID(ctx context.Context, businessID uint) (*domain.BusinessWallet, error)
 	FindByAccountReference(ctx context.Context, accountReference string) (*domain.BusinessWallet, error)
 	Update(ctx context.Context, wallet *domain.BusinessWallet) error
+	IncrementBalance(ctx context.Context, businessID uint, amount int64) (*domain.BusinessWallet, error)
+	DecrementBalanceAndLocked(ctx context.Context, businessID uint, balanceAmount int64, lockedAmount int64) (*domain.BusinessWallet, error)
+	IncrementLocked(ctx context.Context, businessID uint, amount int64) (*domain.BusinessWallet, error)
+	DecrementLocked(ctx context.Context, businessID uint, amount int64) (*domain.BusinessWallet, error)
 	WithTx(tx *gorm.DB) WalletRepository
 }
 
@@ -127,6 +136,12 @@ type WalletTransactionRepository interface {
 	FindByReference(ctx context.Context, reference string) (*domain.WalletTransaction, error)
 	Update(ctx context.Context, tx *domain.WalletTransaction) error
 	WithTx(tx *gorm.DB) WalletTransactionRepository
+}
+
+// AuditRepository defines the interface for audit log operations
+type AuditRepository interface {
+	Create(ctx context.Context, log *domain.AuditLog) error
+	FindByBusinessID(ctx context.Context, businessID uint, page, limit int) ([]*domain.AuditLog, int, error)
 }
 
 // Transactioner defines the interface for database transactions

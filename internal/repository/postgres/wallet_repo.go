@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"time"
 
 	"gorm.io/gorm"
@@ -157,6 +158,62 @@ func (r *walletRepository) Update(ctx context.Context, wallet *domain.BusinessWa
 	}
 	*wallet = *model.ToDomain()
 	return nil
+}
+
+func (r *walletRepository) IncrementBalance(ctx context.Context, businessID uint, amount int64) (*domain.BusinessWallet, error) {
+	result := r.db.WithContext(ctx).Exec(
+		"UPDATE business_wallets SET balance = balance + ?, balance_updated_at = NOW(), updated_at = NOW() WHERE business_id = ? AND deleted_at IS NULL",
+		amount, businessID,
+	)
+	if result.Error != nil {
+		return nil, DBErrToDomainErr(result.Error)
+	}
+	if result.RowsAffected == 0 {
+		return nil, domain.ErrNotFound
+	}
+	return r.FindByBusinessID(ctx, businessID)
+}
+
+func (r *walletRepository) DecrementBalanceAndLocked(ctx context.Context, businessID uint, balanceAmount int64, lockedAmount int64) (*domain.BusinessWallet, error) {
+	result := r.db.WithContext(ctx).Exec(
+		"UPDATE business_wallets SET balance = balance - ?, locked_balance = GREATEST(locked_balance - ?, 0), balance_updated_at = NOW(), updated_at = NOW() WHERE business_id = ? AND deleted_at IS NULL AND balance >= ?",
+		balanceAmount, lockedAmount, businessID, balanceAmount,
+	)
+	if result.Error != nil {
+		return nil, DBErrToDomainErr(result.Error)
+	}
+	if result.RowsAffected == 0 {
+		return nil, fmt.Errorf("insufficient balance for withdrawal")
+	}
+	return r.FindByBusinessID(ctx, businessID)
+}
+
+func (r *walletRepository) IncrementLocked(ctx context.Context, businessID uint, amount int64) (*domain.BusinessWallet, error) {
+	result := r.db.WithContext(ctx).Exec(
+		"UPDATE business_wallets SET locked_balance = locked_balance + ?, updated_at = NOW() WHERE business_id = ? AND deleted_at IS NULL AND (balance - locked_balance) >= ?",
+		amount, businessID, amount,
+	)
+	if result.Error != nil {
+		return nil, DBErrToDomainErr(result.Error)
+	}
+	if result.RowsAffected == 0 {
+		return nil, fmt.Errorf("insufficient available balance")
+	}
+	return r.FindByBusinessID(ctx, businessID)
+}
+
+func (r *walletRepository) DecrementLocked(ctx context.Context, businessID uint, amount int64) (*domain.BusinessWallet, error) {
+	result := r.db.WithContext(ctx).Exec(
+		"UPDATE business_wallets SET locked_balance = GREATEST(locked_balance - ?, 0), updated_at = NOW() WHERE business_id = ? AND deleted_at IS NULL",
+		amount, businessID,
+	)
+	if result.Error != nil {
+		return nil, DBErrToDomainErr(result.Error)
+	}
+	if result.RowsAffected == 0 {
+		return nil, domain.ErrNotFound
+	}
+	return r.FindByBusinessID(ctx, businessID)
 }
 
 func (r *walletRepository) WithTx(tx *gorm.DB) repository.WalletRepository {

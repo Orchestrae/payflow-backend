@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"payflow/internal/domain"
 	"payflow/internal/repository"
+	"payflow/internal/service/tax"
 	"strings"
 	"time"
 
@@ -132,26 +133,53 @@ func NewPayrollService(
 
 // CalculatePayrollRun performs an in-memory calculation of the payroll.
 func (s *payrollService) CalculatePayrollRun(ctx context.Context, businessID uint, period time.Time, adjustments map[uint][]EmployeeAdjustment) (*domain.PayrollRun, error) {
-	// 1. Fetch all employees for the business.
+	// 1. Fetch business for statutory config + all employees.
+	business, err := s.businessRepo.FindByID(ctx, businessID)
+	if err != nil {
+		log.Error().Err(err).Msg("Failed to fetch business")
+		return nil, fmt.Errorf("failed to fetch business: %w", err)
+	}
+
 	allEmployees, err := s.employeeRepo.FindByBusinessID(ctx, businessID)
 	if err != nil {
 		log.Error().Err(err).Msg("Failed to fetch employees")
 		return nil, fmt.Errorf("failed to fetch employees: %w", err)
 	}
 
-	// Filter for active employees and load their cadres
-	var employees []*domain.Employee
+	// Filter for active employees and batch-load their cadres
+	var activeEmployees []*domain.Employee
+	cadreIDSet := make(map[uint]struct{})
 	for _, emp := range allEmployees {
 		if emp.IsActive {
-			// Load cadre with earning components and deduction rules
-			cadre, err := s.cadreRepo.FindByID(ctx, emp.CadreID, businessID)
-			if err != nil {
-				log.Warn().Err(err).Uint("employee_id", emp.ID).Uint("cadre_id", emp.CadreID).Msg("Failed to load cadre for employee")
-				continue
-			}
-			emp.Cadre = cadre
-			employees = append(employees, emp)
+			activeEmployees = append(activeEmployees, emp)
+			cadreIDSet[emp.CadreID] = struct{}{}
 		}
+	}
+
+	// Batch-load all cadres in a single query (eliminates N+1)
+	cadreIDs := make([]uint, 0, len(cadreIDSet))
+	for id := range cadreIDSet {
+		cadreIDs = append(cadreIDs, id)
+	}
+	cadres, err := s.cadreRepo.FindByIDs(ctx, cadreIDs, businessID)
+	if err != nil {
+		log.Error().Err(err).Msg("Failed to batch-load cadres")
+		return nil, fmt.Errorf("failed to load cadres: %w", err)
+	}
+	cadreMap := make(map[uint]*domain.Cadre, len(cadres))
+	for _, c := range cadres {
+		cadreMap[c.ID] = c
+	}
+
+	var employees []*domain.Employee
+	for _, emp := range activeEmployees {
+		cadre, ok := cadreMap[emp.CadreID]
+		if !ok {
+			log.Warn().Uint("employee_id", emp.ID).Uint("cadre_id", emp.CadreID).Msg("Failed to load cadre for employee")
+			continue
+		}
+		emp.Cadre = cadre
+		employees = append(employees, emp)
 	}
 
 	if len(employees) == 0 {
@@ -159,7 +187,7 @@ func (s *payrollService) CalculatePayrollRun(ctx context.Context, businessID uin
 	}
 
 	// 2. For each employee, calculate their pay.
-	var totalGross, totalDeductions, totalNet int64
+	var totalGross, totalDeductions, totalNet, totalEmployerCosts int64
 	runEntries := make([]domain.PayrollRunEntry, 0, len(employees))
 
 	for _, emp := range employees {
@@ -169,14 +197,21 @@ func (s *payrollService) CalculatePayrollRun(ctx context.Context, businessID uin
 		}
 
 		var entryGross, entryDeductions, entryBonus int64
-		var basicPayAmount int64
+		var basicPay, housingPay, transportPay, otherPay int64
 		details := make([]domain.PayrollRunEntryDetail, 0)
 
-		// Calculate Gross Pay and track the basic pay component
+		// Calculate Gross Pay and classify earning components by type
 		for _, ec := range emp.Cadre.EarningComponents {
 			entryGross += ec.Amount
-			if strings.EqualFold(ec.Name, "basic pay") || strings.EqualFold(ec.Name, "basic salary") || strings.EqualFold(ec.Name, "basic") {
-				basicPayAmount = ec.Amount
+			switch ec.ComponentType {
+			case domain.ComponentBasic:
+				basicPay = ec.Amount
+			case domain.ComponentHousing:
+				housingPay = ec.Amount
+			case domain.ComponentTransport:
+				transportPay = ec.Amount
+			default:
+				otherPay += ec.Amount
 			}
 			details = append(details, domain.PayrollRunEntryDetail{
 				Type:   domain.DetailTypeEarning,
@@ -185,14 +220,23 @@ func (s *payrollService) CalculatePayrollRun(ctx context.Context, businessID uin
 			})
 		}
 
-		// Calculate Deductions, respecting CalculationBasis
+		// Fallback: if no component tagged as basic, use name matching
+		if basicPay == 0 {
+			for _, ec := range emp.Cadre.EarningComponents {
+				if strings.EqualFold(ec.Name, "basic pay") || strings.EqualFold(ec.Name, "basic salary") || strings.EqualFold(ec.Name, "basic") {
+					basicPay = ec.Amount
+					break
+				}
+			}
+		}
+
+		// Calculate custom deductions (business-defined rules)
 		for _, dr := range emp.Cadre.DeductionRules {
 			var deductionAmount int64
 			if dr.Type == domain.DeductionTypePercentage {
-				// Determine the base amount for percentage deductions
 				baseAmount := entryGross
-				if dr.CalculationBasis == domain.BasisBasicPay && basicPayAmount > 0 {
-					baseAmount = basicPayAmount
+				if dr.CalculationBasis == domain.BasisBasicPay && basicPay > 0 {
+					baseAmount = basicPay
 				}
 				deductionAmount = int64(float64(baseAmount) * (dr.Value / 100.0))
 			} else {
@@ -203,6 +247,65 @@ func (s *payrollService) CalculatePayrollRun(ctx context.Context, businessID uin
 				Type:   domain.DetailTypeDeduction,
 				Name:   dr.Name,
 				Amount: deductionAmount,
+			})
+		}
+
+		// Compute Nigerian statutory deductions (PAYE, Pension, NHF, NSITF)
+		taxResult := tax.Calculate(tax.Input{
+			BasicPay:       basicPay,
+			HousingPay:     housingPay,
+			TransportPay:   transportPay,
+			OtherPay:       otherPay,
+			GrossPay:       entryGross,
+			AnnualRentPaid: emp.AnnualRentPaid,
+			PensionEnabled: business.PensionEnabled,
+			NHFEnabled:     business.NHFEnabled,
+			NSITFEnabled:   business.NSITFEnabled,
+			PAYEEnabled:    business.PAYEEnabled,
+		})
+
+		// Add statutory employee deductions
+		if taxResult.PAYE > 0 {
+			entryDeductions += taxResult.PAYE
+			details = append(details, domain.PayrollRunEntryDetail{
+				Type:        domain.DetailTypeStatutoryDeduction,
+				Name:        "PAYE Income Tax",
+				Amount:      taxResult.PAYE,
+				Description: fmt.Sprintf("Monthly PAYE (annual taxable: %d kobo, rent relief: %d kobo)", taxResult.AnnualTaxableIncome, taxResult.RentRelief),
+			})
+		}
+		if taxResult.EmployeePension > 0 {
+			entryDeductions += taxResult.EmployeePension
+			details = append(details, domain.PayrollRunEntryDetail{
+				Type:        domain.DetailTypeStatutoryDeduction,
+				Name:        "Pension (Employee 8%)",
+				Amount:      taxResult.EmployeePension,
+				Description: fmt.Sprintf("RSA contribution (pension base: %d kobo)", taxResult.PensionBase),
+			})
+		}
+		if taxResult.NHF > 0 {
+			entryDeductions += taxResult.NHF
+			details = append(details, domain.PayrollRunEntryDetail{
+				Type: domain.DetailTypeStatutoryDeduction,
+				Name: "NHF (2.5%)",
+				Amount: taxResult.NHF,
+			})
+		}
+
+		// Track employer costs (do NOT reduce net pay)
+		if taxResult.EmployerPension > 0 {
+			details = append(details, domain.PayrollRunEntryDetail{
+				Type:        domain.DetailTypeEmployerCost,
+				Name:        "Pension (Employer 10%)",
+				Amount:      taxResult.EmployerPension,
+				Description: fmt.Sprintf("Employer RSA contribution (pension base: %d kobo)", taxResult.PensionBase),
+			})
+		}
+		if taxResult.NSITF > 0 {
+			details = append(details, domain.PayrollRunEntryDetail{
+				Type: domain.DetailTypeEmployerCost,
+				Name: "NSITF (Employer 1%)",
+				Amount: taxResult.NSITF,
 			})
 		}
 
@@ -252,34 +355,41 @@ func (s *payrollService) CalculatePayrollRun(ctx context.Context, businessID uin
 		entryNet := entryGross + entryBonus - entryDeductions
 
 		runEntries = append(runEntries, domain.PayrollRunEntry{
-			EmployeeID:      emp.ID,
-			Employee:        emp,
-			GrossPay:        entryGross,
-			TotalDeductions: entryDeductions,
-			Bonuses:         entryBonus,
-			NetPay:          entryNet,
-			Details:         details,
+			EmployeeID:         emp.ID,
+			Employee:           emp,
+			GrossPay:           entryGross,
+			TotalDeductions:    entryDeductions,
+			Bonuses:            entryBonus,
+			NetPay:             entryNet,
+			EmployerPension:    taxResult.EmployerPension,
+			EmployerNSITF:      taxResult.NSITF,
+			TotalEmployerCost:  taxResult.TotalEmployerCosts,
+			TotalCostToCompany: entryGross + taxResult.TotalEmployerCosts,
+			Details:            details,
 		})
 
 		totalGross += entryGross
 		totalDeductions += entryDeductions
 		totalNet += entryNet
+		totalEmployerCosts += taxResult.TotalEmployerCosts
 	}
 
 	// 3. Assemble the final payroll run object.
 	now := time.Now()
 	// Normalize period to first day of the month
 	normalizedPeriod := time.Date(period.Year(), period.Month(), 1, 0, 0, 0, 0, time.UTC)
-	
+
 	payrollRun := &domain.PayrollRun{
-		BusinessID:      businessID,
-		Period:          normalizedPeriod,
-		Status:          domain.StatusDraft,
-		TotalGrossPay:   totalGross,
-		TotalDeductions: totalDeductions,
-		TotalNetPay:     totalNet,
-		ScheduledFor:    now.AddDate(0, 0, 5), // Default to 5 days from now
-		Entries:         runEntries,
+		BusinessID:         businessID,
+		Period:             normalizedPeriod,
+		Status:             domain.StatusDraft,
+		TotalGrossPay:      totalGross,
+		TotalDeductions:    totalDeductions,
+		TotalNetPay:        totalNet,
+		TotalEmployerCosts: totalEmployerCosts,
+		TotalCostToCompany: totalGross + totalEmployerCosts,
+		ScheduledFor:       now.AddDate(0, 0, 5), // Default to 5 days from now
+		Entries:            runEntries,
 	}
 
 	return payrollRun, nil
@@ -321,6 +431,20 @@ func (s *payrollService) ApprovePayrollRun(ctx context.Context, runID, approverI
 	run.Status = domain.StatusApproved
 	if err := s.payrollRepo.Update(ctx, run); err != nil {
 		return nil, err
+	}
+
+	// Send approval confirmation to operators
+	if s.notificationSvc != nil {
+		go func() {
+			operators, _ := s.userRepo.FindByBusinessID(context.Background(), approver.BusinessID)
+			for _, op := range operators {
+				if op.Role == domain.RoleOperator {
+					s.notificationSvc.SendEmail(context.Background(), op.Email,
+						"Payroll Approved: "+run.Period.Format("January 2006"),
+						fmt.Sprintf("The payroll run for %s has been approved and is scheduled for processing.", run.Period.Format("January 2006")))
+				}
+			}
+		}()
 	}
 
 	// If auto-process is enabled, process immediately (for testing)
@@ -446,15 +570,31 @@ func (s *payrollService) ProcessPayrollRunInstantly(ctx context.Context, runID, 
 		return nil, fmt.Errorf("failed to update payroll run status: %w", err)
 	}
 
-	// Load employees for entries that don't have employee data
+	// Batch-load employees for entries that don't have employee data (eliminates N+1)
+	var missingEmpIDs []uint
 	for i := range run.Entries {
 		if run.Entries[i].Employee == nil {
-			emp, err := s.employeeRepo.FindByID(ctx, run.Entries[i].EmployeeID, businessID)
-			if err != nil {
-				log.Warn().Err(err).Uint("entry_id", run.Entries[i].ID).Uint("employee_id", run.Entries[i].EmployeeID).Msg("Failed to load employee for entry")
-				continue
+			missingEmpIDs = append(missingEmpIDs, run.Entries[i].EmployeeID)
+		}
+	}
+	if len(missingEmpIDs) > 0 {
+		loadedEmployees, err := s.employeeRepo.FindByIDs(ctx, missingEmpIDs, businessID)
+		if err != nil {
+			log.Error().Err(err).Msg("Failed to batch-load employees for payroll entries")
+		} else {
+			empMap := make(map[uint]*domain.Employee, len(loadedEmployees))
+			for _, emp := range loadedEmployees {
+				empMap[emp.ID] = emp
 			}
-			run.Entries[i].Employee = emp
+			for i := range run.Entries {
+				if run.Entries[i].Employee == nil {
+					if emp, ok := empMap[run.Entries[i].EmployeeID]; ok {
+						run.Entries[i].Employee = emp
+					} else {
+						log.Warn().Uint("entry_id", run.Entries[i].ID).Uint("employee_id", run.Entries[i].EmployeeID).Msg("Failed to load employee for entry")
+					}
+				}
+			}
 		}
 	}
 
@@ -543,6 +683,21 @@ func (s *payrollService) ProcessPayrollRunInstantly(ctx context.Context, runID, 
 	if err := s.payrollRepo.Update(ctx, run); err != nil {
 		log.Error().Err(err).Msg("Failed to update payroll run status")
 		return nil, fmt.Errorf("failed to update payroll run: %w", err)
+	}
+
+	// Send payslip notifications to employees on successful processing
+	if run.Status == domain.StatusCompleted && s.notificationSvc != nil {
+		go func() {
+			period := run.Period.Format("January 2006")
+			for _, entry := range run.Entries {
+				if entry.Employee != nil && entry.Employee.Email != "" {
+					s.notificationSvc.SendEmail(context.Background(), entry.Employee.Email,
+						"Your Payslip is Ready: "+period,
+						fmt.Sprintf("Hi %s,\n\nYour payslip for %s is ready.\nNet Pay: NGN %s\n\nLog in to PayFlow to download your full payslip.",
+							entry.Employee.FullName, period, formatKoboAsNGN(entry.NetPay)))
+				}
+			}
+		}()
 	}
 
 	return run, nil
@@ -650,6 +805,10 @@ func (s *payrollService) MarkRunAsCompleted(ctx context.Context, runID uint, ref
 }
 
 // mapBankNameToCode maps bank names to bank codes (simplified mapping).
+func formatKoboAsNGN(kobo int64) string {
+	return fmt.Sprintf("%.2f", float64(kobo)/100.0)
+}
+
 // Returns an error if the bank name cannot be mapped.
 // In production, this should use a proper bank code lookup service.
 func (s *payrollService) mapBankNameToCode(bankName string) (string, error) {

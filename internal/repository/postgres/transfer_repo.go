@@ -111,6 +111,24 @@ func (r *transferRepository) Create(ctx context.Context, transfer *domain.Transf
 	return nil
 }
 
+func (r *transferRepository) CreateBatch(ctx context.Context, transfers []*domain.Transfer) error {
+	if len(transfers) == 0 {
+		return nil
+	}
+	models := make([]TransferModel, len(transfers))
+	for i, t := range transfers {
+		models[i] = *TransferModelFromDomain(t)
+	}
+	if err := r.db.WithContext(ctx).CreateInBatches(&models, 100).Error; err != nil {
+		return DBErrToDomainErr(err)
+	}
+	// Write back generated IDs and timestamps
+	for i := range models {
+		*transfers[i] = *models[i].ToDomain()
+	}
+	return nil
+}
+
 func (r *transferRepository) FindByID(ctx context.Context, id uint) (*domain.Transfer, error) {
 	var model TransferModel
 	if err := r.db.WithContext(ctx).First(&model, id).Error; err != nil {
