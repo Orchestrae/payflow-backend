@@ -1,7 +1,11 @@
 package handler
 
 import (
+	"crypto/hmac"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
+	"io"
 	"log/slog"
 	"net/http"
 	"payflow/internal/api/middleware"
@@ -17,21 +21,51 @@ import (
 
 type VFDWebhookHandler struct {
 	webhookService service.VFDWebhookService
+	webhookSecret  string
 	validate       *validator.Validate
 }
 
-func NewVFDWebhookHandler(svc service.VFDWebhookService) *VFDWebhookHandler {
+func NewVFDWebhookHandler(svc service.VFDWebhookService, webhookSecret string) *VFDWebhookHandler {
 	return &VFDWebhookHandler{
 		webhookService: svc,
+		webhookSecret:  webhookSecret,
 		validate:       validator.New(),
 	}
+}
+
+// verifySignature verifies VFD webhook HMAC-SHA256 signature.
+func (h *VFDWebhookHandler) verifySignature(body []byte, signature string) bool {
+	if h.webhookSecret == "" {
+		return true // Skip verification if no secret configured
+	}
+	mac := hmac.New(sha256.New, []byte(h.webhookSecret))
+	mac.Write(body)
+	expectedMAC := hex.EncodeToString(mac.Sum(nil))
+	return hmac.Equal([]byte(expectedMAC), []byte(signature))
 }
 
 // HandleInwardCreditWebhook handles POST /vfd/webhooks/inward-credit
 // This endpoint receives webhook notifications for settled inward credit transactions
 func (h *VFDWebhookHandler) HandleInwardCreditWebhook(w http.ResponseWriter, r *http.Request) {
+	bodyBytes, err := io.ReadAll(r.Body)
+	if err != nil {
+		slog.Error("Failed to read webhook body", "error", err)
+		http.Error(w, "Bad Request", http.StatusBadRequest)
+		return
+	}
+
+	// Verify HMAC signature if secret is configured
+	if h.webhookSecret != "" {
+		signature := r.Header.Get("X-VFD-Signature")
+		if signature == "" || !h.verifySignature(bodyBytes, signature) {
+			slog.Error("VFD webhook signature verification failed")
+			http.Error(w, "Unauthorized", http.StatusUnauthorized)
+			return
+		}
+	}
+
 	var req request.VFDInwardCreditWebhookRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := json.Unmarshal(bodyBytes, &req); err != nil {
 		slog.Error("Failed to decode inward credit webhook request", "error", err)
 		response.RespondWithError(w, domain.ErrValidationFailed)
 		return
@@ -73,8 +107,24 @@ func (h *VFDWebhookHandler) HandleInwardCreditWebhook(w http.ResponseWriter, r *
 // HandleInitialInwardCreditWebhook handles POST /vfd/webhooks/initial-inward-credit
 // This endpoint receives webhook notifications for initial inward credit transactions (before settlement)
 func (h *VFDWebhookHandler) HandleInitialInwardCreditWebhook(w http.ResponseWriter, r *http.Request) {
+	bodyBytes, err := io.ReadAll(r.Body)
+	if err != nil {
+		slog.Error("Failed to read webhook body", "error", err)
+		http.Error(w, "Bad Request", http.StatusBadRequest)
+		return
+	}
+
+	if h.webhookSecret != "" {
+		signature := r.Header.Get("X-VFD-Signature")
+		if signature == "" || !h.verifySignature(bodyBytes, signature) {
+			slog.Error("VFD webhook signature verification failed")
+			http.Error(w, "Unauthorized", http.StatusUnauthorized)
+			return
+		}
+	}
+
 	var req request.VFDInitialInwardCreditWebhookRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := json.Unmarshal(bodyBytes, &req); err != nil {
 		slog.Error("Failed to decode initial inward credit webhook request", "error", err)
 		response.RespondWithError(w, domain.ErrValidationFailed)
 		return

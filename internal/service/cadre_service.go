@@ -5,7 +5,9 @@ import (
 	"fmt"
 	"log/slog"
 	"payflow/internal/domain"
+	"payflow/internal/platform/cache"
 	"payflow/internal/repository"
+	"time"
 )
 
 // CadreService defines the interface for cadre-related business logic.
@@ -20,12 +22,18 @@ type CadreService interface {
 // cadreService is the concrete implementation of the CadreService.
 type cadreService struct {
 	cadreRepo repository.CadreRepository
+	cache     *cache.CacheService
 }
 
 // NewCadreService creates a new instance of the cadre service.
-func NewCadreService(cadreRepo repository.CadreRepository) CadreService {
+func NewCadreService(cadreRepo repository.CadreRepository, cacheService ...*cache.CacheService) CadreService {
+	var cs *cache.CacheService
+	if len(cacheService) > 0 {
+		cs = cacheService[0]
+	}
 	return &cadreService{
 		cadreRepo: cadreRepo,
+		cache:     cs,
 	}
 }
 
@@ -60,12 +68,16 @@ func (s *cadreService) CreateCadre(ctx context.Context, cadre *domain.Cadre) (*d
 		return nil, fmt.Errorf("failed to create cadre: %w", err)
 	}
 
+	s.cache.Invalidate(ctx, fmt.Sprintf("cadres:biz:%d", cadre.BusinessID))
 	return cadre, nil
 }
 
-// ListByBusinessID retrieves all cadres for a business.
+// ListByBusinessID retrieves all cadres for a business (cached).
 func (s *cadreService) ListByBusinessID(ctx context.Context, businessID uint) ([]*domain.Cadre, error) {
-	return s.cadreRepo.FindByBusinessID(ctx, businessID)
+	key := fmt.Sprintf("cadres:biz:%d", businessID)
+	return cache.GetOrLoad(s.cache, ctx, key, 5*time.Minute, func() ([]*domain.Cadre, error) {
+		return s.cadreRepo.FindByBusinessID(ctx, businessID)
+	})
 }
 
 // GetByID retrieves a specific cadre by ID, ensuring it belongs to the specified business.
@@ -78,12 +90,17 @@ func (s *cadreService) UpdateCadre(ctx context.Context, cadre *domain.Cadre) (*d
 	if err := s.cadreRepo.Update(ctx, cadre); err != nil {
 		return nil, fmt.Errorf("failed to update cadre: %w", err)
 	}
+	s.cache.Invalidate(ctx, fmt.Sprintf("cadres:biz:%d", cadre.BusinessID))
 	return cadre, nil
 }
 
 // DeleteCadre deletes a cadre, ensuring it belongs to the specified business.
 func (s *cadreService) DeleteCadre(ctx context.Context, cadreID, businessID uint) error {
-	return s.cadreRepo.Delete(ctx, cadreID, businessID)
+	err := s.cadreRepo.Delete(ctx, cadreID, businessID)
+	if err == nil {
+		s.cache.Invalidate(ctx, fmt.Sprintf("cadres:biz:%d", businessID))
+	}
+	return err
 }
 
 func validateEarningComponentNamesUnique(

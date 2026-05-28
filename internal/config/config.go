@@ -37,6 +37,30 @@ type Config struct {
 	TransferMinAmount int64 `mapstructure:"TRANSFER_MIN_AMOUNT"`
 	TransferMaxAmount int64 `mapstructure:"TRANSFER_MAX_AMOUNT"`
 
+	// SMTP Configuration
+	SMTPHost     string `mapstructure:"SMTP_HOST"`
+	SMTPPort     string `mapstructure:"SMTP_PORT"`
+	SMTPUser     string `mapstructure:"SMTP_USER"`
+	SMTPPassword string `mapstructure:"SMTP_PASSWORD"`
+	SMTPFrom     string `mapstructure:"SMTP_FROM"`
+	AppURL       string `mapstructure:"APP_URL"`
+
+	// Redis Configuration
+	RedisURL string `mapstructure:"REDIS_URL"`
+
+	// CORS Configuration
+	CORSAllowedOrigins string `mapstructure:"CORS_ALLOWED_ORIGINS"`
+
+	// Paystack Configuration
+	PaystackSecretKey string `mapstructure:"PAYSTACK_SECRET_KEY"`
+	PaystackBaseURL   string `mapstructure:"PAYSTACK_BASE_URL"`
+
+	// Provider Toggle
+	EnabledProviders string `mapstructure:"ENABLED_PROVIDERS"`
+
+	// VFD Webhook Verification
+	VFDWebhookSecret string `mapstructure:"VFD_WEBHOOK_SECRET"`
+
 	// Database Migration Configuration
 	EnableAutoMigration bool `mapstructure:"ENABLE_AUTO_MIGRATION"` // Set to false in production - use traditional migrations only
 }
@@ -58,6 +82,17 @@ func Load() (*Config, error) {
 	// Transfer limits - Korapay requires minimum NGN 1000 (100000 kobo) and max NGN 10,000,000
 	viper.SetDefault("TRANSFER_MIN_AMOUNT", 1000)    // NGN 1000 minimum
 	viper.SetDefault("TRANSFER_MAX_AMOUNT", 10000000) // NGN 10,000,000 maximum
+	// SMTP defaults (MailHog for local dev, Brevo/SendGrid for production)
+	viper.SetDefault("SMTP_HOST", "localhost")
+	viper.SetDefault("SMTP_PORT", "1025")
+	viper.SetDefault("SMTP_FROM", "no-reply@payflow.com")
+	viper.SetDefault("APP_URL", "http://localhost:3000")
+	// Paystack defaults
+	viper.SetDefault("PAYSTACK_BASE_URL", "https://api.paystack.co")
+	// Provider toggle: comma-separated list of enabled providers (backward compatible)
+	viper.SetDefault("ENABLED_PROVIDERS", "korapay,vfd")
+	// CORS: production origin by default; override with comma-separated list in dev
+	viper.SetDefault("CORS_ALLOWED_ORIGINS", "https://payflowio.netlify.app")
 	// Auto-migration: Disabled by default for safety. Enable only for local development.
 	// In production, use traditional migrations only (golang-migrate).
 	viper.SetDefault("ENABLE_AUTO_MIGRATION", false)
@@ -120,11 +155,6 @@ func Load() (*Config, error) {
 	if config.DatabaseURL != "" &&
 		(strings.Contains(config.DatabaseURL, "railway") || strings.Contains(config.DatabaseURL, "rlwy")) {
 		config.EnableAutoMigration = true
-	}
-
-	// Temporary: JWT_SECRET fallback for Railway - insecure, change in production
-	if config.JWTSecret == "" {
-		config.JWTSecret = "temp-insecure-default-change-in-production"
 	}
 
 	return &config, nil

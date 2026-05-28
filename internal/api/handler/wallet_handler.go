@@ -176,14 +176,17 @@ func (h *WalletHandler) HandleDepositWebhook(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	// Verify webhook signature (HMAC-SHA256)
+	// Verify webhook signature (HMAC-SHA256) — mandatory
 	signature := r.Header.Get("x-korapay-signature")
-	if h.koraSecretKey != "" && signature != "" {
-		if !h.verifyWebhookSignature(bodyBytes, signature) {
-			slog.Error("Webhook signature verification failed")
-			http.Error(w, "Unauthorized", http.StatusUnauthorized)
-			return
-		}
+	if signature == "" {
+		slog.Error("Missing webhook signature header")
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+	if !h.verifyWebhookSignature(bodyBytes, signature) {
+		slog.Error("Webhook signature verification failed")
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
 	}
 
 	// Parse the full webhook payload

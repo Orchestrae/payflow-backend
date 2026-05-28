@@ -5,6 +5,7 @@ import (
 	"context"
 	"net/http"
 	"os"
+	"strings"
 	"os/signal"
 	"syscall"
 	"time"
@@ -15,10 +16,12 @@ import (
 	"payflow/internal/api"
 	"payflow/internal/config"
 	"payflow/internal/domain"
+	"payflow/internal/platform/cache"
 	"payflow/internal/platform/database"
+	"payflow/internal/platform/email"
 	"payflow/internal/platform/korapay"
+	"payflow/internal/platform/paystack"
 	"payflow/internal/platform/scheduler"
-	"payflow/internal/platform/sendgrid" // Using Mailhog/Sendgrid as example
 	"payflow/internal/platform/vfd"
 	"payflow/internal/repository/postgres"
 	"payflow/internal/service"
@@ -36,8 +39,8 @@ func main() {
 		log.Fatal().Err(err).Msg("Failed to load configuration")
 	}
 
-	if cfg.JWTSecret == "temp-insecure-default-change-in-production" {
-		log.Warn().Msg("⚠️  JWT_SECRET not set - using temporary default. Set JWT_SECRET in Railway for production!")
+	if cfg.JWTSecret == "" {
+		log.Fatal().Msg("JWT_SECRET is required — set it in environment or .env file")
 	}
 
 	if cfg.LogPretty {
@@ -54,6 +57,20 @@ func main() {
 		log.Warn().Msg("DATABASE_URL/DB_URL not set - ensure Postgres is linked in Railway")
 	} else {
 		log.Info().Msg("Database URL configured")
+	}
+
+	// --- Redis Initialization (optional — graceful degradation) ---
+	var redisClient *cache.RedisClient
+	if cfg.RedisURL != "" {
+		redisClient, err = cache.NewRedisClient(cfg.RedisURL)
+		if err != nil {
+			log.Warn().Err(err).Msg("Failed to connect to Redis — running without cache/queue")
+		} else {
+			log.Info().Msg("Redis connected")
+			defer redisClient.Close()
+		}
+	} else {
+		log.Warn().Msg("REDIS_URL not set — running without cache and persistent job queue")
 	}
 
 	// --- Phase 2: Platform & Repository Initialization ---
@@ -92,26 +109,45 @@ func main() {
 	// External Platform Clients
 	koraClient := korapay.NewClient(cfg.KoraPayAPIKey, cfg.KoraPayBaseURL)
 	payoutSvc := korapay.NewPayoutService(koraClient)
-	// For local dev, use a mock/Mailhog service. For prod, use a real one.
-	notificationSvc := sendgrid.NewMailhogService()
+	// Email service (configurable SMTP — MailHog for dev, Brevo/SendGrid for production)
+	notificationSvc := email.NewEmailService(cfg)
 	vfdClient := vfd.NewClient(cfg.VFDBaseURL, cfg.VFDConsumerKey, cfg.VFDConsumerSecret)
 	vfdSvc := vfd.NewVFDService(vfdClient)
 	log.Info().Msg("External platform services initialized (Kora, VFD, Notifications)")
 
+	// Cache service (optional — nil-safe, degrades gracefully)
+	cacheSvc := cache.NewCacheService(redisClient)
+
 	// Core Services
-	authSvc := service.NewAuthService(userRepo, businessRepo, txer, cfg.JWTSecret, cfg.JWTExpirationDuration, vfdSvc)
+	authSvc := service.NewAuthService(userRepo, businessRepo, txer, cfg.JWTSecret, cfg.JWTExpirationDuration, vfdSvc,
+		service.WithNotificationService(notificationSvc, cfg.AppURL))
 	employeeSvc := service.NewEmployeeService(employeeRepo, cadreRepo)
-	cadreSvc := service.NewCadreService(cadreRepo)
+	cadreSvc := service.NewCadreService(cadreRepo, cacheSvc)
 	deductionRuleSvc := service.NewDeductionRuleService(deductionRuleRepo)
 	webhookSvc := vfd2.NewVFDWebhookService(webhookRepo, businessRepo, vfdSvc, txer)
 	transferSvc := vfd2.NewVFDTransferService(transferRepo, vfdSvc, txer)
 
-	// Initialize transfer providers with new interface
+	// Initialize transfer providers (only enabled ones with valid credentials)
+	enabledProviders := parseEnabledProviders(cfg.EnabledProviders)
 	providers := make(map[domain.ProviderName]provider.TransferProvider)
-	vfdProvider := provider.NewVFDProvider(vfdSvc)
-	korapayProvider := korapay.NewTransferProvider(koraClient)
-	providers[domain.ProviderVFD] = vfdProvider
-	providers[domain.ProviderKorapay] = korapayProvider
+
+	if enabledProviders["korapay"] && cfg.KoraPayAPIKey != "" {
+		providers[domain.ProviderKorapay] = korapay.NewTransferProvider(koraClient)
+		log.Info().Msg("Korapay transfer provider enabled")
+	}
+	if enabledProviders["vfd"] && cfg.VFDConsumerKey != "" {
+		providers[domain.ProviderVFD] = provider.NewVFDProvider(vfdSvc)
+		log.Info().Msg("VFD transfer provider enabled")
+	}
+	if enabledProviders["paystack"] && cfg.PaystackSecretKey != "" {
+		paystackClient := paystack.NewClient(cfg.PaystackSecretKey, cfg.PaystackBaseURL)
+		providers[domain.ProviderPaystack] = paystack.NewTransferProvider(paystackClient)
+		log.Info().Msg("Paystack transfer provider enabled")
+	}
+
+	if len(providers) == 0 {
+		log.Warn().Msg("No transfer providers enabled — transfers will fail")
+	}
 
 	// Create provider manager
 	providerManager, err := provider.NewTransferProviderManager(
@@ -141,6 +177,13 @@ func main() {
 	transferSvcNew := service.NewTransferService(providerManager, newTransferRepo, userRepo, txer, transferConfig)
 	log.Info().Msgf("Transfer service initialized with limits: min=%d, max=%d", cfg.TransferMinAmount, cfg.TransferMaxAmount)
 
+	// Business, Dashboard, Audit services
+	businessSvc := service.NewBusinessService(businessRepo)
+	dashboardSvc := service.NewDashboardService(employeeRepo, payrollRepo, walletRepo)
+	auditRepo := postgres.NewAuditRepository(db)
+	auditSvc := service.NewAuditService(auditRepo)
+	log.Info().Msg("Business service initialized")
+
 	// Initialize wallet service with virtual account provider
 	walletSvc := service.NewWalletService(walletRepo, walletTxRepo, korapayVirtualAccountProvider)
 	log.Info().Msg("Wallet service initialized")
@@ -157,14 +200,22 @@ func main() {
 		log.Warn().Msg("Transfer service does not support SetWalletService - balance checking disabled")
 	}
 
-	// Keep legacy bulk transfer service for backward compatibility (deprecated)
-	bulkTransferSvc := service.NewBulkTransferService(providerManager, transferRepo, txer)
 
 	// --- Phase 4: Resolving the Scheduler <-> Service Circular Dependency ---
-	// 1. Create a temporary scheduler (will be updated with payroll service)
-	payoutScheduler, err := scheduler.NewCronScheduler(nil, payoutSvc)
-	if err != nil {
-		log.Fatal().Err(err).Msg("Failed to create scheduler")
+	// Choose scheduler: Asynq (Redis-backed, persistent) or gocron (in-memory fallback)
+	var payoutScheduler domain.Scheduler
+	if redisClient != nil {
+		payoutScheduler, err = scheduler.NewAsynqScheduler(cfg.RedisURL, nil, payoutSvc)
+		if err != nil {
+			log.Fatal().Err(err).Msg("Failed to create Asynq scheduler")
+		}
+		log.Info().Msg("Using Asynq scheduler (Redis-backed, persistent)")
+	} else {
+		payoutScheduler, err = scheduler.NewCronScheduler(nil, payoutSvc)
+		if err != nil {
+			log.Fatal().Err(err).Msg("Failed to create scheduler")
+		}
+		log.Warn().Msg("Using in-memory scheduler (gocron) — jobs lost on restart")
 	}
 
 	// 2. Create the PayrollService, injecting the scheduler and other dependencies.
@@ -191,7 +242,7 @@ func main() {
 	}
 
 	// --- Phase 5: API Router & Server Startup ---
-	router := api.NewRouter(cfg, db, authSvc, employeeSvc, cadreSvc, deductionRuleSvc, payrollSvc, webhookSvc, transferSvc, bulkTransferSvc, transferSvcNew, walletSvc, accountHolderSvc, koraClient)
+	router := api.NewRouter(cfg, db, redisClient, authSvc, employeeSvc, cadreSvc, deductionRuleSvc, payrollSvc, webhookSvc, transferSvc, transferSvcNew, walletSvc, businessSvc, dashboardSvc, auditSvc, accountHolderSvc, koraClient, newTransferRepo, businessRepo)
 	log.Info().Msg("API router initialized")
 
 	server := &http.Server{
@@ -232,4 +283,16 @@ func main() {
 	}
 
 	log.Info().Msg("Server exiting gracefully")
+}
+
+// parseEnabledProviders parses the ENABLED_PROVIDERS config into a set.
+func parseEnabledProviders(enabledProviders string) map[string]bool {
+	result := make(map[string]bool)
+	for _, name := range strings.Split(enabledProviders, ",") {
+		name = strings.TrimSpace(name)
+		if name != "" {
+			result[name] = true
+		}
+	}
+	return result
 }

@@ -4,11 +4,15 @@ package api
 import (
 	"encoding/json"
 	"net/http"
+	"strings"
+
 	"payflow/internal/api/handler"
 	"payflow/internal/api/middleware"
 	"payflow/internal/config"
 	"payflow/internal/domain"
+	"payflow/internal/platform/cache"
 	"payflow/internal/platform/korapay"
+	"payflow/internal/repository"
 	"payflow/internal/service"
 
 	"github.com/go-chi/chi/v5"
@@ -18,40 +22,52 @@ import (
 
 // healthResponse represents the /health endpoint response.
 type healthResponse struct {
-	Status   string            `json:"status"`
-	Message  string            `json:"message"`
-	Server   string            `json:"server"`
-	Database healthDBStatus    `json:"database"`
+	Status   string          `json:"status"`
+	Message  string          `json:"message"`
+	Server   string          `json:"server"`
+	Database healthCompStatus `json:"database"`
+	Redis    *healthCompStatus `json:"redis,omitempty"`
 }
 
-type healthDBStatus struct {
+type healthCompStatus struct {
 	Status  string `json:"status"`
 	Message string `json:"message,omitempty"`
 }
 
-func healthHandler(db *gorm.DB) http.HandlerFunc {
+func healthHandler(db *gorm.DB, redisClient *cache.RedisClient) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 
-		dbStatus := healthDBStatus{Status: "ok", Message: "connected"}
+		dbStatus := healthCompStatus{Status: "ok", Message: "connected"}
 		sqlDB, err := db.DB()
 		if err != nil {
-			dbStatus = healthDBStatus{Status: "unavailable", Message: err.Error()}
+			dbStatus = healthCompStatus{Status: "unavailable", Message: err.Error()}
 		} else if err := sqlDB.Ping(); err != nil {
-			dbStatus = healthDBStatus{Status: "unavailable", Message: err.Error()}
+			dbStatus = healthCompStatus{Status: "unavailable", Message: err.Error()}
 		}
 
-		healthy := dbStatus.Status == "ok"
 		resp := healthResponse{
 			Server:   "ok",
 			Database: dbStatus,
 		}
+
+		healthy := dbStatus.Status == "ok"
+
+		// Check Redis if configured
+		if redisClient != nil {
+			redisStatus := healthCompStatus{Status: "ok", Message: "connected"}
+			if err := redisClient.Ping(r.Context()); err != nil {
+				redisStatus = healthCompStatus{Status: "unavailable", Message: err.Error()}
+			}
+			resp.Redis = &redisStatus
+		}
+
 		if healthy {
 			resp.Status = "healthy"
 			resp.Message = "Server is running. All systems operational."
 		} else {
 			resp.Status = "unhealthy"
-			resp.Message = "Server is running but database is unreachable."
+			resp.Message = "Server is running but some services are unreachable."
 		}
 
 		statusCode := http.StatusOK
@@ -63,11 +79,18 @@ func healthHandler(db *gorm.DB) http.HandlerFunc {
 	}
 }
 
+// liveHandler is a lightweight liveness probe (just returns 200).
+func liveHandler(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusOK)
+	w.Write([]byte(`{"status":"alive"}`))
+}
+
 // NewRouter initializes and returns the main application router.
 // It takes the application config and all required services as dependencies.
 func NewRouter(
 	cfg *config.Config,
 	db *gorm.DB,
+	redisClient *cache.RedisClient,
 	authSvc service.AuthService,
 	employeeSvc service.EmployeeService,
 	cadreSvc service.CadreService,
@@ -75,20 +98,35 @@ func NewRouter(
 	payrollSvc service.PayrollService,
 	webhookSvc service.VFDWebhookService,
 	transferSvc service.VFDTransferService,
-	bulkTransferSvc service.BulkTransferService,
 	newTransferSvc service.TransferService,
 	walletSvc service.WalletService,
+	businessSvc service.BusinessService,
+	dashboardSvc service.DashboardService,
+	auditSvc service.AuditService,
 	accountHolderSvc service.AccountHolderService,
 	koraClient *korapay.Client,
+	transferRepo repository.TransferRepository,
+	businessRepo repository.BusinessRepository,
 ) http.Handler {
 	r := chi.NewRouter()
 
 	// --- Global Middleware ---
+	r.Use(middleware.RequestID)
+	r.Use(middleware.Logger)
+
+	// CORS: use config-driven origins
+	origins := strings.Split(cfg.CORSAllowedOrigins, ",")
+	if cfg.CORSAllowedOrigins == "" {
+		origins = []string{"https://payflowio.netlify.app"}
+	}
+	// Rate limiting: 100 req/sec per IP globally
+	r.Use(middleware.RateLimiter(100, 200))
+
 	r.Use(cors.Handler(cors.Options{
-		AllowedOrigins:   []string{"https://payflowio.netlify.app", "http://localhost:3000", "http://localhost:5173"},
+		AllowedOrigins:   origins,
 		AllowedMethods:   []string{"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"},
-		AllowedHeaders:   []string{"Accept", "Authorization", "Content-Type", "X-CSRF-Token"},
-		ExposedHeaders:   []string{"Link"},
+		AllowedHeaders:   []string{"Accept", "Authorization", "Content-Type", "X-CSRF-Token", "X-Request-ID"},
+		ExposedHeaders:   []string{"Link", "X-Request-ID"},
 		AllowCredentials: true,
 		MaxAge:           300,
 	}))
@@ -100,21 +138,30 @@ func NewRouter(
 	cadreHandler := handler.NewCadreHandler(cadreSvc)
 	deductionHandler := handler.NewDeductionRuleHandler(deductionSvc)
 	payrollHandler := handler.NewPayrollHandler(payrollSvc, employeeSvc)
-	webhookHandler := handler.NewVFDWebhookHandler(webhookSvc)
+	webhookHandler := handler.NewVFDWebhookHandler(webhookSvc, cfg.VFDWebhookSecret)
 	transferHandler := handler.NewVFDTransferHandler(transferSvc)
-	bulkTransferHandler := handler.NewBulkTransferHandler(bulkTransferSvc)
 	newTransferHandler := handler.NewTransferHandler(newTransferSvc)
+	businessHandler := handler.NewBusinessHandler(businessSvc)
+	dashboardHandler := handler.NewDashboardHandler(dashboardSvc)
+	auditHandler := handler.NewAuditHandler(auditSvc)
+	reportHandler := handler.NewReportHandler(payrollSvc, businessRepo)
 	walletHandler := handler.NewWalletHandler(walletSvc, accountHolderSvc, cfg, koraClient)
 
 	// --- Health Check ---
-	// Used by load balancers and deployment verification (no auth required).
-	r.Get("/health", healthHandler(db))
+	// /health — readiness probe (checks DB + Redis)
+	// /health/live — liveness probe (just returns 200)
+	r.Get("/health", healthHandler(db, redisClient))
+	r.Get("/health/live", liveHandler)
 
 	// --- Public Routes ---
-	// No authentication required for these endpoints.
+	// No authentication required. Stricter rate limit to prevent brute force.
 	r.Route("/v1/auth", func(r chi.Router) {
+		r.Use(middleware.RateLimiter(5, 10)) // 5 req/sec per IP for auth
 		r.Post("/register", authHandler.RegisterBusiness)
 		r.Post("/login", authHandler.Login)
+		r.Post("/accept-invitation", authHandler.AcceptInvitation)
+		r.Post("/forgot-password", authHandler.ForgotPassword)
+		r.Post("/reset-password", authHandler.ResetPassword)
 		// r.Post("/forgot-password", authHandler.ForgotPassword)
 		// r.Post("/reset-password", authHandler.ResetPassword)
 	})
@@ -133,10 +180,20 @@ func NewRouter(
 		r.Post("/deposit", walletHandler.HandleDepositWebhook)
 	})
 
+	// --- Paystack Webhook Routes ---
+	// Public endpoint for Paystack transfer status updates
+	paystackWebhookHandler := handler.NewPaystackWebhookHandler(cfg.PaystackSecretKey, transferRepo, walletSvc)
+	r.Route("/paystack/webhooks", func(r chi.Router) {
+		r.Post("/", paystackWebhookHandler.HandleWebhook)
+	})
+
 	// --- Protected API v1 Group ---
 	// All routes within this group require a valid JWT.
 	r.Route("/v1", func(r chi.Router) {
 		r.Use(middleware.AuthMiddleware(cfg.JWTSecret))
+
+		// --- Dashboard (all authenticated roles) ---
+		r.Get("/dashboard", dashboardHandler.GetSummary)
 
 		// --- Admin & Operator Routes ---
 		// These routes are for day-to-day operations.
@@ -146,6 +203,7 @@ func NewRouter(
 			// Employee Management
 			r.Route("/employees", func(r chi.Router) {
 				r.Post("/", employeeHandler.CreateEmployee)
+				r.Post("/import", employeeHandler.ImportEmployees)
 				r.Get("/", employeeHandler.ListEmployees)
 				r.Get("/{employeeID}", employeeHandler.GetEmployeeByID)
 				r.Put("/{employeeID}", employeeHandler.UpdateEmployee)
@@ -186,6 +244,18 @@ func NewRouter(
 				r.Post("/{runID}/approve", payrollHandler.ApprovePayrollRun)
 				r.Post("/{runID}/reject", payrollHandler.RejectPayrollRun)
 			})
+
+			// Reports and Payslips (Admin + Operator)
+			r.Group(func(r chi.Router) {
+				r.Use(middleware.RoleMiddleware(domain.RoleAdmin, domain.RoleOperator))
+				r.Get("/{runID}/reports/paye", reportHandler.HandlePAYEReport)
+				r.Get("/{runID}/reports/pension", reportHandler.HandlePensionSchedule)
+				r.Get("/{runID}/reports/nhf", reportHandler.HandleNHFSchedule)
+				r.Get("/{runID}/reports/bank-schedule", reportHandler.HandleBankSchedule)
+				r.Get("/{runID}/reports/summary", reportHandler.HandlePayrollSummary)
+				r.Get("/{runID}/payslips", reportHandler.HandleAllPayslips)
+				r.Get("/{runID}/payslips/{employeeID}", reportHandler.HandlePayslip)
+			})
 		})
 
 		// --- Admin-Only Routes ---
@@ -201,7 +271,17 @@ func NewRouter(
 				r.Delete("/{ruleID}", deductionHandler.DeleteDeductionRule)
 			})
 
-			// User/Team Management could go here
+			// User Invitation (Admin only)
+			r.Post("/auth/invite", authHandler.InviteUser)
+
+			// Audit Logs
+			r.Get("/audit-logs", auditHandler.ListAuditLogs)
+
+			// Business Settings Management
+			r.Route("/business", func(r chi.Router) {
+				r.Get("/settings", businessHandler.GetSettings)
+				r.Patch("/settings", businessHandler.UpdateSettings)
+			})
 			// r.Route("/users", ...)
 		})
 
@@ -226,21 +306,13 @@ func NewRouter(
 			r.Get("/to-account", transferHandler.HandleGetTransfersByToAccount)
 		})
 
-		// --- Bulk Transfer Routes (Legacy - Deprecated) ---
-		// These routes require authentication and are for bulk transfer operations
-		r.Route("/bulk-transfers", func(r chi.Router) {
-			r.Post("/single", bulkTransferHandler.HandleSingleTransfer)
-			r.Post("/batch", bulkTransferHandler.HandleBatchTransfer)
-			r.Post("/flow-data", bulkTransferHandler.HandleGetTransferFlowData)
-		})
-
-		// --- Transfer Routes (New - Provider-Agnostic) ---
-		// Clean, provider-agnostic transfer API with Korapay as primary provider
+		// --- Transfer Routes (Provider-Agnostic) ---
 		r.Route("/transfers", func(r chi.Router) {
 			r.Post("/", newTransferHandler.HandleSingleTransfer)
 			r.Post("/batch", newTransferHandler.HandleBatchTransfer)
 			r.Get("/", newTransferHandler.HandleListTransfers)
 			r.Get("/{id}", newTransferHandler.HandleGetTransfer)
+			r.Post("/{id}/retry", newTransferHandler.HandleRetryTransfer)
 		})
 
 		// --- Wallet Routes ---

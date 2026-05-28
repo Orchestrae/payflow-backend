@@ -18,6 +18,19 @@ services:
       timeout: 5s
       retries: 5
 
+  redis:
+    image: redis:7-alpine
+    container_name: payflow_redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
   mailhog:
     image: mailhog/mailhog
     container_name: payflow_mailhog
@@ -59,6 +72,16 @@ services:
       - KORAPAY_API_KEY=
       - KORAPAY_PUBLIC_KEY=
       - KORAPAY_BASE_URL=https://api.korapay.com/v1
+      - REDIS_URL=redis://redis:6379/0
+      - CORS_ALLOWED_ORIGINS=http://localhost:3000,http://localhost:5173
+      - SMTP_HOST=mailhog
+      - SMTP_PORT=1025
+      - SMTP_FROM=no-reply@payflow.com
+      - APP_URL=http://localhost:3000
+      - ENABLED_PROVIDERS=korapay,vfd
+      - PAYSTACK_SECRET_KEY=
+      - PAYSTACK_BASE_URL=https://api.paystack.co
 
 volumes:
   postgres_data:
+  redis_data:
