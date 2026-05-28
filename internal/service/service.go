@@ -37,7 +37,10 @@ type NotificationService interface {
 type AuthService interface {
 	RegisterBusiness(ctx context.Context, name, email, password, rcNumber string, incorporationDate time.Time, directorBVN string) (*domain.User, *vfd.CorporateAccount, error)
 	Login(ctx context.Context, email, password string) (token string, user *domain.User, err error)
-	// Add more methods like InviteUser, AcceptInvite, etc. later
+	InviteUser(ctx context.Context, businessID uint, email string, role domain.UserRole, businessName string) error
+	AcceptInvitation(ctx context.Context, token string, password string) (*domain.User, string, error)
+	RequestPasswordReset(ctx context.Context, email string) error
+	ResetPassword(ctx context.Context, token string, newPassword string) error
 }
 
 // VFDWebhookService defines the business logic for VFD webhook notifications.

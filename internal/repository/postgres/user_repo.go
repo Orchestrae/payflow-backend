@@ -74,6 +74,24 @@ func (r *userRepository) FindByEmail(ctx context.Context, email string) (*domain
 	return dbUser.ToDomain(), nil
 }
 
+func (r *userRepository) FindByResetToken(ctx context.Context, token string) (*domain.User, error) {
+	var dbUser User
+	err := r.db.WithContext(ctx).Where("reset_token = ?", token).First(&dbUser).Error
+	if err != nil {
+		return nil, DBErrToDomainErr(err)
+	}
+	return dbUser.ToDomain(), nil
+}
+
+func (r *userRepository) FindByInviteToken(ctx context.Context, token string) (*domain.User, error) {
+	var dbUser User
+	err := r.db.WithContext(ctx).Where("invite_token = ?", token).First(&dbUser).Error
+	if err != nil {
+		return nil, DBErrToDomainErr(err)
+	}
+	return dbUser.ToDomain(), nil
+}
+
 func (r *userRepository) FindApproversByBusinessID(ctx context.Context, businessID uint) ([]domain.User, error) {
 	var dbUsers []User
 	err := r.db.WithContext(ctx).

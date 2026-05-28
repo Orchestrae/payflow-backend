@@ -3,21 +3,27 @@ package service
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"fmt"
 	"payflow/internal/domain"
 	"payflow/internal/platform/vfd"
 	"payflow/internal/repository"
 	"payflow/pkg/utils"
 	"time"
+
+	"github.com/rs/zerolog/log"
 )
 
 type authService struct {
-	userRepo     repository.UserRepository
-	businessRepo repository.BusinessRepository
-	txer         repository.Transactioner // Transaction manager
-	jwtSecret    string
-	jwtExpiry    time.Duration
-	vfdService   vfd.VFDService
+	userRepo        repository.UserRepository
+	businessRepo    repository.BusinessRepository
+	txer            repository.Transactioner
+	jwtSecret       string
+	jwtExpiry       time.Duration
+	vfdService      vfd.VFDService
+	notificationSvc NotificationService
+	appURL          string
 }
 
 // NewAuthService creates a new authentication service.
@@ -28,8 +34,9 @@ func NewAuthService(
 	jwtSecret string,
 	jwtExpiry time.Duration,
 	vfdService vfd.VFDService,
+	opts ...AuthServiceOption,
 ) AuthService {
-	return &authService{
+	svc := &authService{
 		userRepo:     userRepo,
 		businessRepo: businessRepo,
 		txer:         txer,
@@ -37,6 +44,29 @@ func NewAuthService(
 		jwtExpiry:    jwtExpiry,
 		vfdService:   vfdService,
 	}
+	for _, opt := range opts {
+		opt(svc)
+	}
+	return svc
+}
+
+// AuthServiceOption configures optional auth service dependencies.
+type AuthServiceOption func(*authService)
+
+// WithNotificationService sets the notification service for auth emails.
+func WithNotificationService(ns NotificationService, appURL string) AuthServiceOption {
+	return func(s *authService) {
+		s.notificationSvc = ns
+		s.appURL = appURL
+	}
+}
+
+func generateToken() (string, error) {
+	b := make([]byte, 32)
+	if _, err := rand.Read(b); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(b), nil
 }
 
 // RegisterBusiness handles the creation of a new business and its admin user.
@@ -191,3 +221,150 @@ func (s *authService) Login(ctx context.Context, email, password string) (string
 
 	return token, user, nil
 }
+
+// InviteUser invites a new user to a business.
+func (s *authService) InviteUser(ctx context.Context, businessID uint, email string, role domain.UserRole, businessName string) error {
+	// Check if user already exists with this email
+	existing, _ := s.userRepo.FindByEmail(ctx, email)
+	if existing != nil {
+		return domain.ErrConflict
+	}
+
+	// Generate invite token
+	token, err := generateToken()
+	if err != nil {
+		return fmt.Errorf("failed to generate invite token: %w", err)
+	}
+
+	// Create user with invite token (temporary password, must accept invitation)
+	tempHash, _ := utils.HashPassword(token) // temp password = token itself
+	user := &domain.User{
+		BusinessID:   businessID,
+		Email:        email,
+		PasswordHash: tempHash,
+		Role:         role,
+		InviteToken:  &token,
+	}
+
+	if err := s.userRepo.Create(ctx, user); err != nil {
+		return fmt.Errorf("failed to create invited user: %w", err)
+	}
+
+	// Send invitation email
+	if s.notificationSvc != nil {
+		inviteURL := fmt.Sprintf("%s/invite?token=%s", s.appURL, token)
+		subject := fmt.Sprintf("You're invited to join %s on PayFlow", businessName)
+		body := fmt.Sprintf("You have been invited to join %s as %s.\n\nAccept your invitation: %s\n\nThis link is valid for 7 days.", businessName, role, inviteURL)
+		go s.notificationSvc.SendEmail(context.Background(), email, subject, body)
+	}
+
+	log.Info().Str("email", email).Str("role", string(role)).Uint("business_id", businessID).Msg("User invited")
+	return nil
+}
+
+// AcceptInvitation accepts an invitation and sets the user's password.
+func (s *authService) AcceptInvitation(ctx context.Context, token string, password string) (*domain.User, string, error) {
+	// Find all users for this business and look for matching invite token
+	// Since we don't have a FindByInviteToken, iterate users
+	// TODO: Add FindByInviteToken to UserRepository for efficiency
+	user, err := s.userRepo.FindByInviteToken(ctx, token)
+	if err != nil {
+		return nil, "", domain.ErrNotFound
+	}
+	if user.InviteAccepted {
+		return nil, "", fmt.Errorf("%w: invitation already accepted", domain.ErrConflict)
+	}
+
+	// Set real password
+	hashedPassword, err := utils.HashPassword(password)
+	if err != nil {
+		return nil, "", fmt.Errorf("failed to hash password: %w", err)
+	}
+
+	user.PasswordHash = hashedPassword
+	user.InviteAccepted = true
+	user.InviteToken = nil
+	user.IsVerified = true
+
+	if err := s.userRepo.Update(ctx, user); err != nil {
+		return nil, "", fmt.Errorf("failed to update user: %w", err)
+	}
+
+	// Generate JWT
+	jwtToken, err := utils.GenerateToken(
+		fmt.Sprint(user.ID),
+		fmt.Sprint(user.BusinessID),
+		string(user.Role),
+		s.jwtSecret,
+		s.jwtExpiry,
+	)
+	if err != nil {
+		return nil, "", fmt.Errorf("failed to generate token: %w", err)
+	}
+
+	return user, jwtToken, nil
+}
+
+// RequestPasswordReset sends a password reset email.
+func (s *authService) RequestPasswordReset(ctx context.Context, email string) error {
+	user, err := s.userRepo.FindByEmail(ctx, email)
+	if err != nil {
+		// Don't reveal whether email exists
+		return nil
+	}
+
+	token, err := generateToken()
+	if err != nil {
+		return fmt.Errorf("failed to generate reset token: %w", err)
+	}
+
+	expiry := time.Now().Add(1 * time.Hour)
+	user.ResetToken = &token
+	user.ResetTokenExpiry = &expiry
+
+	if err := s.userRepo.Update(ctx, user); err != nil {
+		return fmt.Errorf("failed to save reset token: %w", err)
+	}
+
+	// Send reset email
+	if s.notificationSvc != nil {
+		resetURL := fmt.Sprintf("%s/reset-password?token=%s", s.appURL, token)
+		subject := "PayFlow - Reset Your Password"
+		body := fmt.Sprintf("You requested a password reset.\n\nReset your password: %s\n\nThis link expires in 1 hour.\n\nIf you didn't request this, ignore this email.", resetURL)
+		go s.notificationSvc.SendEmail(context.Background(), email, subject, body)
+	}
+
+	log.Info().Str("email", email).Msg("Password reset requested")
+	return nil
+}
+
+// ResetPassword resets the user's password using a valid token.
+func (s *authService) ResetPassword(ctx context.Context, token string, newPassword string) error {
+	user, err := s.userRepo.FindByResetToken(ctx, token)
+	if err != nil {
+		return domain.ErrNotFound
+	}
+
+	// Check expiry
+	if user.ResetTokenExpiry != nil && user.ResetTokenExpiry.Before(time.Now()) {
+		return fmt.Errorf("%w: reset token has expired", domain.ErrValidationFailed)
+	}
+
+	// Set new password
+	hashedPassword, err := utils.HashPassword(newPassword)
+	if err != nil {
+		return fmt.Errorf("failed to hash password: %w", err)
+	}
+
+	user.PasswordHash = hashedPassword
+	user.ResetToken = nil
+	user.ResetTokenExpiry = nil
+
+	if err := s.userRepo.Update(ctx, user); err != nil {
+		return fmt.Errorf("failed to update password: %w", err)
+	}
+
+	log.Info().Uint("user_id", user.ID).Msg("Password reset completed")
+	return nil
+}
+
