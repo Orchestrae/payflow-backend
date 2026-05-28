@@ -1,173 +1,239 @@
-# **PayFlow - Automated Payroll Platform**
+# PayFlow
 
-[![Go Report Card](https://goreportcard.com/badge/github.com/your-username/payflow)](https://goreportcard.com/report/github.com/your-username/payflow)
-[![CI](https://github.com/your-username/payflow/actions/workflows/ci.yml/badge.svg)](https://github.com/your-username/payflow/actions/workflows/ci.yml)
+Automated payroll and payment platform for Nigerian SMEs. Built with Go, PostgreSQL, and Redis.
 
-PayFlow is a robust, production-grade backend service designed to simplify and automate financial operations for Small to Medium-sized Enterprises (SMEs). The core of the platform is a powerful payroll automation engine that handles everything from salary calculation to bulk disbursement.
+PayFlow handles the complete payroll lifecycle: employee onboarding, salary structure configuration, payroll calculation, multi-role approval workflow, and bulk salary disbursement via Korapay and VFD Bank.
 
-This repository contains the backend service, built with Go, following Clean Architecture principles for maximum maintainability, scalability, and testability.
+## Documentation
 
-## **Table of Contents**
+| Document | Description |
+|----------|-------------|
+| **[Architecture](docs/ARCHITECTURE.md)** | System design, clean architecture layers, scaling decisions, roadmap |
+| **[API Reference](docs/API_REFERENCE.md)** | Complete endpoint reference with request/response examples |
+| **[Payroll Guide](docs/PAYROLL_GUIDE.md)** | Payroll workflow, state machine, configuration options |
+| **[Wallet Guide](docs/WALLET_GUIDE.md)** | Virtual accounts, KYC, deposits, withdrawals, webhooks |
+| **[Deployment Guide](docs/DEPLOYMENT.md)** | Docker setup, Railway deployment, environment variables, migrations |
 
-1.  [Features & Implementation Status](#features--implementation-status)
-2.  [Architecture](#architecture)
-3.  [Tech Stack](#tech-stack)
-4.  [Getting Started](#getting-started)
-    *   [Prerequisites](#prerequisites)
-    *   [Local Development Setup](#local-development-setup)
-5.  [API Endpoints](#api-endpoints)
-6.  [Running Migrations](#running-migrations)
-7.  [Future Work](#future-work)
+## Tech Stack
 
----
+| Component | Technology |
+|-----------|------------|
+| Language | Go 1.24+ |
+| Router | Chi v5 |
+| Database | PostgreSQL 15 |
+| ORM | GORM |
+| Cache / Queue | Redis 7 (go-redis + Asynq) |
+| Migrations | golang-migrate |
+| Auth | JWT (HS256) |
+| Payments | Korapay (primary), VFD Bank (fallback) |
+| Config | Viper |
+| Logging | zerolog |
+| Containers | Docker, Docker Compose |
+| Deployment | Railway |
 
-## **Features & Implementation Status**
+## Quick Start
 
-This section tracks the progress of the MVP features.
+### Prerequisites
 
-| Feature Area                  | Status                                            | Description                                                                                             |
-| ----------------------------- | ------------------------------------------------- | ------------------------------------------------------------------------------------------------------- |
-| **Foundational Setup**        | ✅ **Complete**                                   | Project structure, configuration management (`viper`), structured logging (`zerolog`), and Docker setup.  |
-| **User & Business Auth**      | ✅ **Complete**                                   | Secure user registration for a new business, JWT-based login, and role-based access control middleware. |
-| **Employee Management**       | ✅ **Complete**                                   | Full CRUD (Create, Read, Update, Deactivate) operations for employee records.                           |
-| **Cadre (Salary) Management** | 🚧 **In Progress**                                | CRUD operations for managing salary structures (cadres), including earnings and deduction rules.        |
-| **Deduction Rule Management** | ⏳ **Pending**                                    | Admin-only endpoints to configure company-wide deduction rules (e.g., taxes, pensions).                 |
-| **Payroll Calculation Engine**| ✅ **Complete**                                   | Core service logic can accurately calculate gross pay, deductions, and net pay for all employees.       |
-| **Payroll Workflow**          | ✅ **Complete**                                   | Full workflow: Create Run -> Submit for Approval -> Approve/Reject Run.                                 |
-| **Payment Disbursement**      | 🚧 **In Progress (KoraPay)**                      | Integration with KoraPay for bulk payment disbursement. Interface is defined, implementation ongoing. |
-| **Background Jobs & Scheduler**| ✅ **Complete**                                   | A robust scheduler (`gocron`) handles the execution of approved payrolls on their scheduled date.     |
-| **Email Notifications**       | ✅ **Complete (MailHog)**                         | System can send notifications for key events (e.g., payroll rejection). Uses MailHog for local dev.   |
+- [Go](https://go.dev/doc/install) 1.24+
+- [Docker](https://www.docker.com/get-started/) and Docker Compose
+- [golang-migrate](https://github.com/golang-migrate/migrate/tree/master/cmd/migrate) CLI
 
----
+### Setup
 
-## **Architecture**
+```bash
+# Clone and enter
+git clone <repo-url>
+cd payflow
 
-This project strictly follows **Clean Architecture** principles to ensure a separation of concerns.
+# Create environment file
+cp .env.example .env
+# Edit .env — at minimum set JWT_SECRET
 
--   `internal/domain`: Contains the core business entities and rules. It has no external dependencies.
--   `internal/service`: Orchestrates the business logic and use cases (e.g., `PayrollService`). Depends only on `domain` and repository interfaces.
--   `internal/repository`: Defines interfaces for data persistence (`UserRepository`) and contains concrete implementations (e.g., `postgres`).
--   `internal/platform`: Contains concrete implementations for external services like payment gateways (`korapay`), schedulers (`scheduler`), and notification providers (`sendgrid`).
--   `internal/api`: The delivery layer. It handles HTTP requests, validation, and responses. It depends on the `service` layer to perform actions.
+# Start infrastructure (PostgreSQL, Redis, Mailhog)
+docker-compose up -d
 
-This structure ensures that the core business logic is independent of the database, web framework, and any third-party services, making the system highly adaptable and testable.
+# Run migrations
+make migrate-up
 
----
+# Start the server
+make run
+```
 
-## **Tech Stack**
+The server starts on `http://localhost:8080`. Health check: `GET /health`.
 
--   **Language**: Go (v1.22+)
--   **API Framework**: `chi`
--   **Database**: PostgreSQL
--   **ORM**: `gorm`
--   **Migrations**: `golang-migrate/migrate`
--   **Configuration**: `viper`
--   **Logging**: `zerolog`
--   **Background Jobs**: `gocron`
--   **Local Dev Environment**: Docker & Docker Compose
+### Docker Compose Services
 
----
+| Service | Port | Purpose |
+|---------|------|---------|
+| PostgreSQL | 5433 | Primary database |
+| Redis | 6379 | Caching + job queue |
+| Mailhog | 8025 (UI), 1025 (SMTP) | Email testing |
+| App | 8082 | Development server (hot-reload) |
 
-## **Getting Started**
+### Required Environment Variables
 
-### **Prerequisites**
+| Variable | Required | Description |
+|----------|----------|-------------|
+| `JWT_SECRET` | Yes | Server will not start without this |
+| `DB_URL` | Yes | PostgreSQL connection string |
+| `KORAPAY_API_KEY` | For payments | Korapay API key |
+| `PAYSTACK_SECRET_KEY` | For payments | Paystack secret key |
+| `REDIS_URL` | No | Redis connection (app works without it) |
+| `SMTP_HOST` | No | SMTP server (default: localhost for MailHog) |
+| `SMTP_FROM` | No | Sender email (default: no-reply@payflow.com) |
 
--   [Go](https://go.dev/doc/install) (v1.22 or later)
--   [Docker](https://www.docker.com/get-started/) and [Docker Compose](https://docs.docker.com/compose/install/)
--   [golang-migrate/migrate](https://github.com/golang-migrate/migrate/tree/master/cmd/migrate) CLI tool.
--   `make` (optional, but recommended for using the Makefile shortcuts)
+See [Deployment Guide](docs/DEPLOYMENT.md) for the complete environment variable reference.
 
-### **Local Development Setup**
+## Project Structure
 
-1.  **Clone the repository:**
-    ```bash
-    git clone https://github.com/your-username/payflow.git
-    cd payflow
-    ```
+```
+cmd/server/main.go              Entry point, dependency injection
+internal/
+  api/handler/                   HTTP handlers
+  api/middleware/                 Auth, Logger, RateLimiter, RequestID
+  api/router.go                  Route definitions
+  config/                        Configuration (Viper)
+  domain/                        Domain models and interfaces
+  platform/cache/                Redis client + cache-aside service
+  platform/email/                SMTP + Hermes email templates
+  platform/database/             PostgreSQL setup
+  platform/korapay/              Korapay payment provider
+  platform/scheduler/            Asynq (Redis) + gocron (fallback)
+  platform/vfd/                  VFD Bank provider
+  repository/postgres/           PostgreSQL implementations
+  repository/repository.go       Repository interfaces
+  service/                       Business logic layer
+  service/provider/              Transfer provider manager
+pkg/utils/                       JWT, password hashing
+migrations/                      SQL migration files (000001-000011)
+docs/                            Project documentation
+```
 
-2.  **Create your environment file:**
-    Copy the example file and fill in your details. For local development, the defaults are usually sufficient.
-    ```bash
-    cp .env.example .env
-    ```
+## API Overview
 
-3.  **Start the infrastructure:**
-    This command will start the PostgreSQL database and a MailHog instance for testing email notifications.
-    ```bash
-    make up
-    ```
-    Alternatively, if not using `make`:
-    ```bash
-    docker-compose up -d
-    ```
+All endpoints are under `/v1`. Authentication uses JWT Bearer tokens.
 
-4.  **Run database migrations:**
-    This will create all the necessary tables in the `payflow_db` database.
-    ```bash
-    make migrate-up
-    ```
+### Public Endpoints
 
-5.  **Install dependencies:**
-    ```bash
-    go mod tidy
-    ```
+| Method | Path | Description |
+|--------|------|-------------|
+| POST | `/v1/auth/register` | Register business + admin user |
+| POST | `/v1/auth/login` | Login, receive JWT |
+| POST | `/v1/auth/forgot-password` | Request password reset email |
+| POST | `/v1/auth/reset-password` | Reset password with token |
+| POST | `/v1/auth/accept-invitation` | Accept invite, set password |
+| GET | `/health` | Readiness probe (DB + Redis) |
+| GET | `/health/live` | Liveness probe |
 
-6.  **Run the application:**
-    The server will start on `http://localhost:8080`.
-    ```bash
-    make run
-    ```
-    Alternatively, if not using `make`:
-    ```bash
-    go run ./cmd/server/main.go
-    ```
-    You can now access the API endpoints using a tool like Postman or `curl`.
+### Protected Endpoints (require JWT)
 
----
+| Area | Endpoints | Roles |
+|------|-----------|-------|
+| Employees | CRUD at `/v1/employees` | Admin, Operator |
+| Cadres | CRUD at `/v1/cadres` | Admin, Operator |
+| Deduction Rules | CRUD at `/v1/deduction-rules` | Admin |
+| Payroll | Create, submit, approve, reject, process at `/v1/payroll-runs` | Admin, Operator, Approver |
+| Transfers | Single + batch at `/v1/transfers` (provider selection) | Authenticated |
+| Wallets | Virtual accounts, balance, transactions at `/v1/wallets` | Authenticated |
+| Dashboard | Summary metrics at `/v1/dashboard` | Authenticated |
+| Settings | Business config at `/v1/business/settings` | Admin |
+| Reports | CSV/PDF downloads at `/v1/payroll-runs/{id}/reports/*` | Admin, Operator |
+| Payslips | PDF downloads at `/v1/payroll-runs/{id}/payslips/*` | Admin, Operator |
+| Invitations | Invite users at `/v1/auth/invite` | Admin |
 
-## **API Endpoints**
+See [API Reference](docs/API_REFERENCE.md) for complete request/response examples.
 
-The API is versioned under `/v1`. For detailed information on request/response formats for each endpoint, please refer to our Postman collection or OpenAPI/Swagger documentation (pending).
+### Webhook Endpoints (public, signature-verified)
 
-**Key Endpoints Implemented:**
+| Method | Path | Provider |
+|--------|------|----------|
+| POST | `/korapay/webhooks/deposit` | Korapay (HMAC-SHA256 mandatory) |
+| POST | `/vfd/webhooks/inward-credit` | VFD Bank |
+| POST | `/vfd/webhooks/initial-inward-credit` | VFD Bank |
 
--   `POST /v1/auth/register`: Create a new business and admin user.
--   `POST /v1/auth/login`: Log in to receive a JWT.
--   `POST /v1/employees`: Create a new employee (Admin/Operator role required).
--   `GET /v1/employees`: List all employees for the business (Admin/Operator role required).
--   `GET /v1/employees/{id}`: Get a single employee's details.
--   `POST /v1/payroll-runs`: Create a new draft payroll run.
--   `POST /v1/payroll-runs/{id}/submit`: Submit a draft for approval.
--   `POST /v1/payroll-runs/{id}/approve`: Approve a run for payment (Approver/Admin role required).
--   `POST /v1/payroll-runs/{id}/reject`: Reject a run and send it back to draft (Approver/Admin role required).
+## Key Features
 
----
+### Payroll Engine
+- Automatic gross/deduction/net calculation from cadre earning components
+- Multi-role approval workflow (operator creates, approver approves)
+- Configurable: auto-approval, auto-process, scheduled processing
+- Bulk disbursement via Korapay (2-50 per batch) with VFD fallback
 
-## **Running Migrations**
+### Wallet System
+- Virtual bank account provisioning (Korapay)
+- Real-time balance tracking with atomic SQL operations
+- Deposit via webhooks, withdrawal via transfers
+- KYC/account holder management
 
-Database schema changes are managed via raw SQL migration files in the `/migrations` directory. Use the `migrate` CLI tool via the Makefile for safety.
+### Nigerian Tax Compliance
+- PAYE 2026 (Nigeria Tax Act 2025 brackets, NGN 800K tax-free threshold)
+- Pension RSA (8% employee + 10% employer)
+- NHF (2.5% of basic salary)
+- NSITF (1% employer-only)
+- Configurable per-business (enable/disable each deduction)
 
--   **Create a new migration:**
-    ```bash
-    make migrate-create name=add_new_feature_table
-    ```
+### Reports & Payslips
+- PDF payslips with Hermes-styled layout (earnings, deductions, employer costs)
+- PAYE return CSV for TaxProMax upload
+- Pension schedule CSV for PFA remittance
+- NHF schedule CSV for FMBN
+- Bank schedule CSV for bulk transfers
+- Bulk payslip ZIP download
 
--   **Apply all pending migrations:**
-    ```bash
-    make migrate-up
-    ```
+### User Management
+- Admin invites operators/approvers via email
+- Password reset flow with secure token (1-hour expiry)
+- Beautiful HTML emails via Hermes (payslip notifications, approvals, resets)
+- Configurable SMTP (Brevo free tier, SendGrid, any provider)
 
--   **Revert the last applied migration:**
-    ```bash
-    make migrate-down
-    ```
+### Security
+- JWT authentication with mandatory secret
+- HMAC-SHA256/SHA512 webhook verification (Korapay, Paystack, VFD)
+- Rate limiting (100/sec global, 5/sec on auth)
+- Request logging with trace IDs
+- Role-based access control (admin, operator, approver)
 
----
+### Scaling
+- Redis caching (cache-aside pattern, 5 min TTL)
+- Asynq persistent job queue (3 retries, 10 min timeout)
+- Batch database operations (FindByIDs, CreateInBatches)
+- Atomic wallet operations (no race conditions)
+- Performance indexes on hot query paths
 
-## **Future Work**
+See [Architecture](docs/ARCHITECTURE.md) for scaling roadmap and design decisions.
 
--   **Complete Deduction Rule Management**: Implement the service and repository for full CRUD on tax/pension rules.
--   **Finalize KoraPay Integration**: Complete the `payout.go` client to handle real-world disbursement calls and error handling.
--   **Implement Unit & Integration Tests**: Add comprehensive test coverage for services and handlers.
--   **Generate API Documentation**: Create an OpenAPI (Swagger) specification for the API.
--   **Enhance Security**: Implement more robust security measures like refresh tokens, detailed audit logging, and rate limiting.
+## Migrations
+
+```bash
+# Apply all pending migrations
+make migrate-up
+
+# Revert last migration
+make migrate-down
+
+# Create new migration
+make migrate-create name=add_new_feature
+```
+
+Current version: 000013. See [Deployment Guide](docs/DEPLOYMENT.md) for migration strategy.
+
+## Testing
+
+```bash
+# Import the Postman collection
+docs/PayFlow_API.postman_collection.json
+
+# Registration flow order:
+# 1. Register business
+# 2. Login
+# 3. Create deduction rules
+# 4. Create cadres
+# 5. Add employees
+# 6. Create payroll run
+# 7. Submit for approval
+# 8. Approve
+# 9. Process
+```
+
+See [API Reference](docs/API_REFERENCE.md) for curl examples and testing instructions.

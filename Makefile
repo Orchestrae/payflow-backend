@@ -1,54 +1,56 @@
 # Makefile
 
-.PHONY: all run build test lint clean push help
+.PHONY: all run build test vet lint clean up down migrate-create migrate-up migrate-down push push-fast push-new git-setup help
 
 # Variables
 BINARY_NAME=payflow
 BINARY_PATH=./bin/$(BINARY_NAME)
 MAIN_PATH=./cmd/server/main.go
 DOCKER_COMPOSE=docker-compose
+DSN ?= postgres://payflow_user:payflow_secret@localhost:5433/payflow_db?sslmode=disable
 
 # Default target
-all: build
+all: vet test build
 
-# Runs the application using go run
+# --- Application ---
+
 run:
 	@echo "Running application..."
-	@go run cmd/server/main.go
+	@go run $(MAIN_PATH)
 
-# Builds the application binary
 build:
 	@echo "Building binary..."
 	@go build -o $(BINARY_PATH) $(MAIN_PATH)
 
-# Runs all tests
+# --- Quality ---
+
 test:
 	@echo "Running tests..."
-	@go test -v ./...
+	@go test ./internal/... -count=1 -race
 
-# Lints the code
+vet:
+	@echo "Running vet..."
+	@go vet ./...
+
 lint:
 	@echo "Linting code..."
 	@golangci-lint run
 
-# Removes the built binary
-clean:
-	@echo "Cleaning up..."
-	@rm -f $(BINARY_PATH)
+# --- Docker ---
 
-# Runs docker-compose up
 up:
-	@echo "Starting services with docker-compose..."
+	@echo "Starting services..."
 	@$(DOCKER_COMPOSE) up -d
 
-# Runs docker-compose down
 down:
-	@echo "Stopping services with docker-compose..."
+	@echo "Stopping services..."
 	@$(DOCKER_COMPOSE) down
 
+logs:
+	@$(DOCKER_COMPOSE) logs -f app
+
 # --- Database Migrations ---
-# Ensure DSN is set in your environment or .env file for local use
-# DSN="postgres://payflow_user:payflow_secret@localhost:5432/payflow_db?sslmode=disable"
+
 migrate-create:
 	@read -p "Enter migration name: " name; \
 	migrate create -ext sql -dir migrations -seq $$name
@@ -61,27 +63,34 @@ migrate-down:
 	@echo "Reverting last migration..."
 	@migrate -database "$(DSN)" -path ./migrations down 1
 
-# --- Git Commands ---
-# Use GIT_USERNAME and GH_TOKEN for push, or fall back to gh auth token
-# Format: https://USERNAME:TOKEN@github.com/Orchestrae/payflow-backend.git
+migrate-status:
+	@echo "Migration status..."
+	@migrate -database "$(DSN)" -path ./migrations version
+
+# --- Cleanup ---
+
+clean:
+	@echo "Cleaning up..."
+	@rm -f $(BINARY_PATH)
+
+# --- Git ---
+
 REPO_URL = https://github.com/Orchestrae/payflow-backend.git
 
-# Ensures remote URL is set with token:username format
 git-setup:
 	@echo "Setting up git remote..."
 	@if [ -n "$$GH_TOKEN" ] && [ -n "$$GIT_USERNAME" ]; then \
 		git remote set-url origin https://$$GIT_USERNAME:$$GH_TOKEN@github.com/Orchestrae/payflow-backend.git; \
-		echo "✅ Remote configured (GIT_USERNAME:GH_TOKEN)"; \
+		echo "Remote configured (GIT_USERNAME:GH_TOKEN)"; \
 	elif command -v gh >/dev/null 2>&1; then \
 		git remote set-url origin https://$$(gh auth token)@github.com/Orchestrae/payflow-backend.git; \
-		echo "✅ Remote configured (gh auth token)"; \
+		echo "Remote configured (gh auth token)"; \
 	else \
 		read -p "GitHub username: " u; read -sp "Token: " t; echo; \
 		git remote set-url origin https://$$u:$$t@github.com/Orchestrae/payflow-backend.git; \
-		echo "✅ Remote configured"; \
+		echo "Remote configured"; \
 	fi
 
-# Push: uses USERNAME:TOKEN format for auth
 push:
 	@echo "Pushing to remote..."
 	@BRANCH=$$(git branch --show-current); \
@@ -96,46 +105,47 @@ push:
 		git push --set-upstream origin $$BRANCH; \
 	fi; \
 	git remote set-url origin $(REPO_URL); \
-	echo "✅ Push successful!"
+	echo "Push successful!"
 
-# Pushes current branch (assumes remote is already configured)
 push-fast:
-	@echo "Pushing to remote..."
 	@git push -u origin $$(git branch --show-current)
-	@echo "✅ Push successful!"
 
-# Creates a new branch and pushes it
 push-new:
 	@read -p "Enter branch name: " branch; \
-	if [ -z "$$GIT_USERNAME" ]; then \
-		read -p "Enter GitHub username: " username; \
-		git remote set-url origin https://$$username@github.com/Orchestrae/payflow-backend.git; \
-	else \
-		git remote set-url origin https://$$GIT_USERNAME@github.com/Orchestrae/payflow-backend.git; \
-	fi; \
 	git checkout -b $$branch; \
-	git push -u origin $$branch; \
-	echo "✅ Branch $$branch created and pushed!"
+	git push -u origin $$branch
 
-# Displays help message
+# --- Help ---
+
 help:
-	@echo "Available commands:"
-	@echo "  run           - Run the application"
-	@echo "  build         - Build the application binary"
-	@echo "  test          - Run tests"
-	@echo "  lint          - Lint the code"
-	@echo "  clean         - Remove the built binary"
-	@echo "  up            - Start services with docker-compose"
-	@echo "  down          - Stop services with docker-compose"
-	@echo "  push          - Push current branch to remote (handles new/existing branches)"
-	@echo "  migrate-create - Create a new SQL migration file"
-	@echo "  migrate-up    - Apply all up migrations"
-	@echo "  migrate-down  - Revert the last migration"
 	@echo ""
-	@echo "Git commands:"
-	@echo "  git-setup     - Configure git remote (prompts for username)"
-	@echo "  push          - Push current branch (prompts for username if GIT_USERNAME not set)"
-	@echo "  push-fast     - Push current branch (assumes remote configured)"
-	@echo "  push-new      - Create new branch and push it"
+	@echo "PayFlow Makefile"
+	@echo "================"
 	@echo ""
-	@echo "  Usage: GIT_USERNAME=user GH_TOKEN=token make push"
+	@echo "  Application:"
+	@echo "    run              Run the server"
+	@echo "    build            Build binary to ./bin/payflow"
+	@echo ""
+	@echo "  Quality:"
+	@echo "    test             Run tests with race detector"
+	@echo "    vet              Run go vet"
+	@echo "    lint             Run golangci-lint"
+	@echo ""
+	@echo "  Docker:"
+	@echo "    up               Start all services (PostgreSQL, Redis, MailHog)"
+	@echo "    down             Stop all services"
+	@echo "    logs             Follow app logs"
+	@echo ""
+	@echo "  Migrations:"
+	@echo "    migrate-create   Create new migration (prompts for name)"
+	@echo "    migrate-up       Apply all pending migrations"
+	@echo "    migrate-down     Revert last migration"
+	@echo "    migrate-status   Show current migration version"
+	@echo ""
+	@echo "  Git:"
+	@echo "    push             Push current branch (handles auth)"
+	@echo "    push-fast        Push without auth setup"
+	@echo "    push-new         Create and push new branch"
+	@echo ""
+	@echo "  DSN=<url> make migrate-up   (custom database URL)"
+	@echo ""

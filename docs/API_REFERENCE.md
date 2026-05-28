@@ -1,8 +1,42 @@
-# Payflow API Flow Guide
+# PayFlow API Reference
 
-> A comprehensive guide for frontend engineers integrating with the Payflow payroll management API.
+> Complete API reference for frontend engineers integrating with PayFlow.
 
 **Base URL (local development):** `http://localhost:8080`
+**Base URL (production):** Replace with your deployment domain.
+
+**Related Documentation:**
+- [Architecture](./ARCHITECTURE.md) -- system design and patterns
+- [Payroll Guide](./PAYROLL_GUIDE.md) -- payroll workflow details
+- [Wallet Guide](./WALLET_GUIDE.md) -- wallet and virtual account details
+- [Deployment Guide](./DEPLOYMENT.md) -- setup, env vars, Railway
+
+**Rate Limits:**
+- Global: 100 requests/second per IP
+- Auth endpoints (`/v1/auth/*`): 5 requests/second per IP
+- Exceeding limits returns `429 Too Many Requests`
+
+**Request ID:**
+- Every response includes an `X-Request-ID` header for tracing
+- You can pass your own `X-Request-ID` in the request to correlate with your logs
+
+**New Endpoints (not in original collection -- update Postman manually):**
+
+| Method | Path | Auth | Description |
+|--------|------|------|-------------|
+| POST | `/v1/auth/invite` | Admin | Invite user to business |
+| POST | `/v1/auth/accept-invitation` | Public | Accept invite, set password |
+| POST | `/v1/auth/forgot-password` | Public | Request password reset |
+| POST | `/v1/auth/reset-password` | Public | Reset password with token |
+| GET | `/v1/dashboard` | Any | Dashboard summary metrics |
+| GET | `/v1/business/settings` | Admin | Get business settings |
+| PATCH | `/v1/business/settings` | Admin | Update statutory/workflow config |
+| GET | `/v1/payroll-runs/{id}/reports/paye` | Admin/Op | PAYE return CSV |
+| GET | `/v1/payroll-runs/{id}/reports/pension` | Admin/Op | Pension schedule CSV |
+| GET | `/v1/payroll-runs/{id}/reports/nhf` | Admin/Op | NHF schedule CSV |
+| GET | `/v1/payroll-runs/{id}/reports/bank-schedule` | Admin/Op | Bank transfer CSV |
+| GET | `/v1/payroll-runs/{id}/payslips/{empID}` | Admin/Op | Employee payslip PDF |
+| GET | `/v1/payroll-runs/{id}/payslips` | Admin/Op | All payslips ZIP |
 
 ---
 
