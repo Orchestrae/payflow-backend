@@ -6,8 +6,9 @@ import "time"
 type ProviderName string
 
 const (
-	ProviderKorapay ProviderName = "korapay"
-	ProviderVFD     ProviderName = "vfd"
+	ProviderKorapay  ProviderName = "korapay"
+	ProviderVFD      ProviderName = "vfd"
+	ProviderPaystack ProviderName = "paystack"
 )
 
 // SingleTransferRequest represents a provider-agnostic request to transfer funds.
@@ -20,7 +21,10 @@ type SingleTransferRequest struct {
 	AccountNumber string `json:"account_number"`
 	AccountName   string `json:"account_name"`
 	Narration     string `json:"narration"`
-	Currency      string `json:"currency,omitempty"` // Defaults to NGN
+	Currency      string       `json:"currency,omitempty"` // Defaults to NGN
+
+	// Optional: preferred provider override (if empty, uses default + fallback)
+	PreferredProvider ProviderName `json:"provider,omitempty"`
 
 	// Internal fields (populated by service layer, not from user input)
 	BusinessID    uint   `json:"-"` // Set by service from auth context
