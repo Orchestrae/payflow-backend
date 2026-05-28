@@ -250,8 +250,8 @@ func (s *payrollService) CalculatePayrollRun(ctx context.Context, businessID uin
 			})
 		}
 
-		// Compute Nigerian statutory deductions (PAYE, Pension, NHF, NSITF)
-		taxResult := tax.Calculate(tax.Input{
+		// Compute statutory deductions based on business country (Nigeria/Ghana)
+		taxResult := tax.CalculateForCountry(business.Currency, tax.Input{
 			BasicPay:       basicPay,
 			HousingPay:     housingPay,
 			TransportPay:   transportPay,
