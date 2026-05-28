@@ -96,7 +96,7 @@ func Load() (*Config, error) {
 	// Provider toggle: comma-separated list of enabled providers (backward compatible)
 	viper.SetDefault("ENABLED_PROVIDERS", "korapay,vfd")
 	// CORS: production origin by default; override with comma-separated list in dev
-	viper.SetDefault("CORS_ALLOWED_ORIGINS", "https://payflowio.netlify.app")
+	viper.SetDefault("CORS_ALLOWED_ORIGINS", "https://payflowio.vercel.app,https://payflowio.netlify.app")
 	// Auto-migration: Disabled by default for safety. Enable only for local development.
 	// In production, use traditional migrations only (golang-migrate).
 	viper.SetDefault("ENABLE_AUTO_MIGRATION", false)
