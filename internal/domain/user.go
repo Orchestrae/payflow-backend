@@ -9,6 +9,7 @@ const (
 	RoleAdmin    UserRole = "admin"
 	RoleOperator UserRole = "operator"
 	RoleApprover UserRole = "approver"
+	RoleEmployee UserRole = "employee"
 )
 
 type User struct {
