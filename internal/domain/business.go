@@ -24,6 +24,11 @@ type Business struct {
 	PAYEEnabled    bool   `gorm:"default:true" json:"paye_enabled"`
 	Currency       string `gorm:"size:10;default:'NGN'" json:"currency"`
 
+	// Billing
+	SubscriptionTier   PlanTier `gorm:"type:varchar(20);default:'free'" json:"subscription_tier"`
+	SubscriptionStatus string   `gorm:"size:20;default:'active'" json:"subscription_status"`
+	IsSuspended        bool     `gorm:"default:false" json:"is_suspended"`
+
 	// Relationships (without foreign key constraints to avoid circular dependency)
 	Admin *User  `gorm:"-" json:"-"`
 	Users []User `gorm:"-" json:"-"`

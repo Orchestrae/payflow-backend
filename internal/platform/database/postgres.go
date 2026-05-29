@@ -128,6 +128,7 @@ func AutoMigrateAll(db *gorm.DB) error {
 		`CREATE TYPE payroll_entry_detail_type AS ENUM ('earning', 'deduction', 'bonus')`,
 		`ALTER TYPE payroll_entry_detail_type ADD VALUE IF NOT EXISTS 'statutory_deduction'`,
 		`ALTER TYPE payroll_entry_detail_type ADD VALUE IF NOT EXISTS 'employer_cost'`,
+		`ALTER TYPE user_role ADD VALUE IF NOT EXISTS 'super_admin'`,
 	}
 	for _, stmt := range enumStatements {
 		err := db.Exec(stmt).Error
@@ -156,6 +157,9 @@ func AutoMigrateAll(db *gorm.DB) error {
 		&domain.LeaveType{},
 		&domain.LeaveRequest{},
 		&domain.LeaveBalance{},
+		&domain.SubscriptionPlan{},
+		&domain.Subscription{},
+		&domain.Invoice{},
 	}
 
 	for _, model := range models {

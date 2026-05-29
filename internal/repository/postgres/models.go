@@ -27,6 +27,9 @@ type Business struct {
 	NSITFEnabled            bool `gorm:"default:false"`
 	PAYEEnabled             bool   `gorm:"default:true"`
 	Currency                string `gorm:"size:10;default:'NGN'"`
+	SubscriptionTier        string `gorm:"size:20;default:'free'"`
+	SubscriptionStatus      string `gorm:"size:20;default:'active'"`
+	IsSuspended             bool   `gorm:"default:false"`
 	Users                   []User `gorm:"foreignKey:BusinessID"`
 }
 
@@ -106,6 +109,9 @@ func (b *Business) ToDomain() *domain.Business {
 		NSITFEnabled:            b.NSITFEnabled,
 		PAYEEnabled:             b.PAYEEnabled,
 		Currency:                b.Currency,
+		SubscriptionTier:        domain.PlanTier(b.SubscriptionTier),
+		SubscriptionStatus:      b.SubscriptionStatus,
+		IsSuspended:             b.IsSuspended,
 	}
 }
 
@@ -131,6 +137,9 @@ func BusinessFromDomain(b *domain.Business) *Business {
 		NSITFEnabled:            b.NSITFEnabled,
 		PAYEEnabled:             b.PAYEEnabled,
 		Currency:                b.Currency,
+		SubscriptionTier:        string(b.SubscriptionTier),
+		SubscriptionStatus:      b.SubscriptionStatus,
+		IsSuspended:             b.IsSuspended,
 	}
 }
 

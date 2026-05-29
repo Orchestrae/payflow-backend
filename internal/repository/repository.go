@@ -138,6 +138,29 @@ type WalletTransactionRepository interface {
 	WithTx(tx *gorm.DB) WalletTransactionRepository
 }
 
+// SubscriptionPlanRepository defines the interface for subscription plan operations
+type SubscriptionPlanRepository interface {
+	Create(ctx context.Context, plan *domain.SubscriptionPlan) error
+	FindAll(ctx context.Context) ([]*domain.SubscriptionPlan, error)
+	FindByTier(ctx context.Context, tier domain.PlanTier) (*domain.SubscriptionPlan, error)
+	FindByID(ctx context.Context, id uint) (*domain.SubscriptionPlan, error)
+}
+
+// SubscriptionRepository defines the interface for subscription operations
+type SubscriptionRepository interface {
+	Create(ctx context.Context, sub *domain.Subscription) error
+	FindByBusinessID(ctx context.Context, businessID uint) (*domain.Subscription, error)
+	Update(ctx context.Context, sub *domain.Subscription) error
+	FindAll(ctx context.Context, page, limit int) ([]*domain.Subscription, int, error)
+}
+
+// InvoiceRepository defines the interface for invoice operations
+type InvoiceRepository interface {
+	Create(ctx context.Context, inv *domain.Invoice) error
+	FindByBusinessID(ctx context.Context, businessID uint, page, limit int) ([]*domain.Invoice, int, error)
+	Update(ctx context.Context, inv *domain.Invoice) error
+}
+
 // LoanRepository defines the interface for employee loan operations
 type LoanRepository interface {
 	Create(ctx context.Context, loan *domain.EmployeeLoan) error

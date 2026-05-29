@@ -19,4 +19,5 @@ test_*.sh
 *.test
 
 # Output of the go coverage tool
-*.out
+*.outfrontend/
+tmp/

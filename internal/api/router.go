@@ -14,6 +14,7 @@ import (
 	"payflow/internal/platform/korapay"
 	"payflow/internal/repository"
 	"payflow/internal/service"
+	"payflow/internal/service/platform"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/cors"
@@ -106,6 +107,8 @@ func NewRouter(
 	notifCenterSvc service.NotificationCenterService,
 	verificationSvc service.AccountVerificationService,
 	loanSvc service.LoanService,
+	billingSvc platform.BillingService,
+	platformSvc platform.PlatformService,
 	accountHolderSvc service.AccountHolderService,
 	koraClient *korapay.Client,
 	transferRepo repository.TransferRepository,
@@ -150,6 +153,8 @@ func NewRouter(
 	notifHandler := handler.NewNotificationHandler(notifCenterSvc)
 	verificationHandler := handler.NewVerificationHandler(verificationSvc)
 	loanHandler := handler.NewLoanHandler(loanSvc)
+	billingHandler := handler.NewBillingHandler(billingSvc)
+	platformHandler := handler.NewPlatformHandler(platformSvc)
 	selfServiceHandler := handler.NewSelfServiceHandler(employeeSvc, payrollSvc)
 	reportHandler := handler.NewReportHandler(payrollSvc, businessRepo)
 	walletHandler := handler.NewWalletHandler(walletSvc, accountHolderSvc, cfg, koraClient)
@@ -373,6 +378,27 @@ func NewRouter(
 				r.Post("/sandbox/credit", walletHandler.HandleSandboxCredit)
 			})
 		})
+	})
+
+	// --- Billing Routes (inside v1, all authenticated) ---
+	// Mounted at the end to keep tenant routes clean
+	r.Route("/v1/billing", func(r chi.Router) {
+		r.Use(middleware.AuthMiddleware(cfg.JWTSecret))
+		r.Get("/plans", billingHandler.GetPlans)
+		r.Get("/subscription", billingHandler.GetSubscription)
+		r.Post("/subscribe", billingHandler.Subscribe)
+		r.Post("/cancel", billingHandler.CancelSubscription)
+		r.Get("/invoices", billingHandler.ListInvoices)
+	})
+
+	// --- Platform Admin Routes (super admin only) ---
+	r.Route("/platform", func(r chi.Router) {
+		r.Use(middleware.AuthMiddleware(cfg.JWTSecret))
+		r.Use(middleware.SuperAdminMiddleware)
+		r.Get("/stats", platformHandler.GetStats)
+		r.Get("/organizations", platformHandler.ListOrganizations)
+		r.Post("/organizations/{id}/suspend", platformHandler.SuspendOrganization)
+		r.Post("/organizations/{id}/activate", platformHandler.ActivateOrganization)
 	})
 
 	return r

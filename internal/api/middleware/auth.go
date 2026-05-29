@@ -100,3 +100,15 @@ func RoleMiddleware(allowedRoles ...domain.UserRole) func(http.Handler) http.Han
 		})
 	}
 }
+
+// SuperAdminMiddleware restricts access to super admin users only.
+func SuperAdminMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		claims, ok := r.Context().Value(UserClaimsKey).(*Claims)
+		if !ok || claims.Role != domain.RoleSuperAdmin {
+			response.RespondWithError(w, domain.ErrForbidden)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}

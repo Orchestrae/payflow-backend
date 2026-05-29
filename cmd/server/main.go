@@ -24,7 +24,9 @@ import (
 	"payflow/internal/platform/scheduler"
 	"payflow/internal/platform/vfd"
 	"payflow/internal/repository/postgres"
+	billingpkg "payflow/internal/platform/billing"
 	"payflow/internal/service"
+	platformsvc "payflow/internal/service/platform"
 	"payflow/internal/service/provider"
 	vfd2 "payflow/internal/service/vfd"
 
@@ -200,6 +202,17 @@ func main() {
 		verificationPaystackClient = paystack.NewClient(cfg.PaystackSecretKey, cfg.PaystackBaseURL)
 	}
 	verificationSvc := service.NewAccountVerificationService(verificationPaystackClient)
+
+	// Platform & Billing services
+	planRepo := postgres.NewSubscriptionPlanRepository(db)
+	subRepo := postgres.NewSubscriptionRepository(db)
+	invoiceRepo := postgres.NewInvoiceRepository(db)
+	var paystackBillingClient *billingpkg.PaystackBillingClient
+	if cfg.PaystackSecretKey != "" {
+		paystackBillingClient = billingpkg.NewPaystackBillingClient(cfg.PaystackSecretKey, cfg.PaystackBaseURL)
+	}
+	billingSvc := platformsvc.NewBillingService(planRepo, subRepo, invoiceRepo, businessRepo, employeeRepo, paystackBillingClient, cfg.AppURL)
+	platformSvc := platformsvc.NewPlatformService(businessRepo, userRepo, employeeRepo, subRepo, planRepo)
 	loanRepo := postgres.NewLoanRepository(db)
 	loanSvc := service.NewLoanService(loanRepo)
 	log.Info().Msg("Business, audit, notification services initialized")
@@ -262,7 +275,7 @@ func main() {
 	}
 
 	// --- Phase 5: API Router & Server Startup ---
-	router := api.NewRouter(cfg, db, redisClient, authSvc, employeeSvc, cadreSvc, deductionRuleSvc, payrollSvc, webhookSvc, transferSvc, transferSvcNew, walletSvc, businessSvc, dashboardSvc, auditSvc, notifCenterSvc, verificationSvc, loanSvc, accountHolderSvc, koraClient, newTransferRepo, businessRepo)
+	router := api.NewRouter(cfg, db, redisClient, authSvc, employeeSvc, cadreSvc, deductionRuleSvc, payrollSvc, webhookSvc, transferSvc, transferSvcNew, walletSvc, businessSvc, dashboardSvc, auditSvc, notifCenterSvc, verificationSvc, loanSvc, billingSvc, platformSvc, accountHolderSvc, koraClient, newTransferRepo, businessRepo)
 	log.Info().Msg("API router initialized")
 
 	server := &http.Server{
