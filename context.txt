@@ -172,6 +172,29 @@ Migration 000014: audit_logs table + indexes
 - Makefile: vet, test -race, migrate-status, logs, DSN default
 - DEPLOYMENT.md: production checklist, Brevo SMTP, Paystack live keys, Railway setup, backup guide
 
+### Sprint D: Post-Launch Growth (2026-05-29) ✅
+- Bank account verification (Paystack resolve)
+- In-app notification center (CRUD + unread count)
+- SMS notifications (Termii)
+- Employee self-service (RoleEmployee, /v1/me/* endpoints)
+- Loan deductions (EmployeeLoan model, payroll integration)
+- Pro-rata salary (StartDate on employee)
+- Leave management (types, requests, balances, approve/reject)
+- Multi-currency (Business.Currency, Ghana tax engine with SSNIT)
+- Ghana tax engine: 7 PAYE brackets + SSNIT pension (10 tests passing)
+
+### Platform & Billing Layer (2026-05-29) ✅
+- Subscription plans: Free (5 emp), Starter (50 emp, NGN 15K/mo), Pro (unlimited, NGN 50K/mo)
+- Paystack billing integration for PayFlow's own subscription payments
+- Plan enforcement middleware (employee/payroll limits per plan)
+- Suspension middleware (blocks API for suspended orgs)
+- Super admin role (RoleSuperAdmin) with platform-wide access
+- Platform dashboard: MRR, total orgs, signups, plan distribution
+- Org management: list, suspend, activate organizations
+- Billing API: GET /v1/billing/plans, POST /v1/billing/subscribe, etc.
+- Platform API: GET /platform/stats, GET /platform/organizations, etc.
+- Migration 000019: subscription_plans (seeded), subscriptions, invoices tables
+
 ## KNOWN ISSUES
 - payroll_service.go (726 lines) — should split calc vs processing
 - transfer_service.go (580 lines) — should split single vs batch

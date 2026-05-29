@@ -13,6 +13,7 @@ PayFlow handles the complete payroll lifecycle: employee onboarding, salary stru
 | **[Payroll Guide](docs/PAYROLL_GUIDE.md)** | Payroll workflow, state machine, configuration options |
 | **[Wallet Guide](docs/WALLET_GUIDE.md)** | Virtual accounts, KYC, deposits, withdrawals, webhooks |
 | **[Deployment Guide](docs/DEPLOYMENT.md)** | Docker setup, Railway deployment, environment variables, migrations |
+| **[Access Guide](docs/ACCESS_GUIDE.md)** | How to login as super admin, business admin, operator, approver, employee |
 
 ## Tech Stack
 

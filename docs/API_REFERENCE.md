@@ -37,6 +37,29 @@
 | GET | `/v1/payroll-runs/{id}/reports/bank-schedule` | Admin/Op | Bank transfer CSV |
 | GET | `/v1/payroll-runs/{id}/payslips/{empID}` | Admin/Op | Employee payslip PDF |
 | GET | `/v1/payroll-runs/{id}/payslips` | Admin/Op | All payslips ZIP |
+| GET | `/v1/payroll-runs/{id}/reports/summary` | Admin/Op | Payroll summary CSV |
+| POST | `/v1/employees/import` | Admin/Op | CSV employee import |
+| POST | `/v1/transfers/{id}/retry` | Any | Retry failed transfer |
+| GET | `/v1/audit-logs` | Admin | Audit trail (paginated) |
+| GET | `/v1/notifications` | Any | In-app notifications |
+| GET | `/v1/notifications/unread-count` | Any | Unread badge count |
+| PATCH | `/v1/notifications/{id}/read` | Any | Mark notification read |
+| GET | `/v1/verify/bank-account` | Any | Validate bank account (Paystack) |
+| GET | `/v1/me/profile` | Employee | Self-service profile |
+| PATCH | `/v1/me/bank-details` | Employee | Update own bank details |
+| GET | `/v1/me/payslips` | Employee | Own payslip history |
+| POST | `/v1/loans` | Admin/Op | Create employee loan |
+| GET | `/v1/loans` | Admin/Op | List loans |
+| PATCH | `/v1/loans/{id}/cancel` | Admin/Op | Cancel active loan |
+| GET | `/v1/billing/plans` | Any | List subscription plans |
+| GET | `/v1/billing/subscription` | Any | Current subscription |
+| POST | `/v1/billing/subscribe` | Admin | Subscribe/upgrade (Paystack URL) |
+| POST | `/v1/billing/cancel` | Admin | Cancel subscription |
+| GET | `/v1/billing/invoices` | Admin | Payment history |
+| GET | `/platform/stats` | SuperAdmin | Platform dashboard (MRR, orgs) |
+| GET | `/platform/organizations` | SuperAdmin | All organizations |
+| POST | `/platform/organizations/{id}/suspend` | SuperAdmin | Suspend org |
+| POST | `/platform/organizations/{id}/activate` | SuperAdmin | Activate org |
 
 ---
 
