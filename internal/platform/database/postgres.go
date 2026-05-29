@@ -161,6 +161,14 @@ func AutoMigrateAll(db *gorm.DB) error {
 	for _, model := range models {
 		log.Printf("Migrating model: %T", model)
 		if err := db.AutoMigrate(model); err != nil {
+			errStr := err.Error()
+			// Skip constraint/index errors from existing SQL-migrated tables
+			if strings.Contains(errStr, "does not exist") ||
+				strings.Contains(errStr, "already exists") ||
+				strings.Contains(errStr, "duplicate") {
+				log.Printf("Skipping non-critical migration error for %T: %v", model, err)
+				continue
+			}
 			log.Printf("Error migrating %T: %v", model, err)
 			return err
 		}

@@ -153,16 +153,22 @@ func main() {
 		log.Warn().Msg("No transfer providers enabled — transfers will fail")
 	}
 
-	// Create provider manager
-	providerManager, err := provider.NewTransferProviderManager(
-		cfg.TransferDefaultProvider,
-		cfg.TransferProviderFallbackOrder,
-		providers,
-	)
-	if err != nil {
-		log.Fatal().Err(err).Msg("Failed to create transfer provider manager")
+	// Create provider manager (graceful if no providers configured)
+	var providerManager *provider.TransferProviderManager
+	if len(providers) > 0 {
+		providerManager, err = provider.NewTransferProviderManager(
+			cfg.TransferDefaultProvider,
+			cfg.TransferProviderFallbackOrder,
+			providers,
+		)
+		if err != nil {
+			log.Warn().Err(err).Msg("Failed to create transfer provider manager — transfers will be unavailable")
+		} else {
+			log.Info().Msgf("Transfer provider manager initialized with default provider: %s", cfg.TransferDefaultProvider)
+		}
+	} else {
+		log.Warn().Msg("No transfer providers configured — transfers disabled")
 	}
-	log.Info().Msgf("Transfer provider manager initialized with default provider: %s", cfg.TransferDefaultProvider)
 
 	// Initialize virtual account provider (KoraPay)
 	korapayVirtualAccountProvider := korapay.NewVirtualAccountProvider(koraClient)
