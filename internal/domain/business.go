@@ -9,7 +9,11 @@ type Business struct {
 	Name              string  `gorm:"size:255" json:"name"`
 	RCNumber          *string `gorm:"size:50" json:"rc_number,omitempty"`
 	IncorporationDate *time.Time `json:"incorporation_date,omitempty"`
-	DirectorBVN       *string `gorm:"size:11" json:"director_bvn,omitempty"`
+	DirectorBVN       *string `gorm:"size:11" json:"-"`                          // Never in API responses
+	DirectorBVNLast4  string  `gorm:"size:4" json:"director_bvn_last4,omitempty"` // Masked display
+	BVNVerified       bool    `gorm:"default:false" json:"bvn_verified"`
+	RCVerified        bool    `gorm:"default:false" json:"rc_verified"`
+	IsVerified        bool    `gorm:"default:false" json:"is_verified"`
 	VFDAccountNumber  *string `gorm:"size:20" json:"vfd_account_number,omitempty"`
 	VFDAccountName    *string `gorm:"size:255" json:"vfd_account_name,omitempty"`
 

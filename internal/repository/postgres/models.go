@@ -18,6 +18,10 @@ type Business struct {
 	RCNumber                *string
 	IncorporationDate       *time.Time
 	DirectorBVN             *string
+	DirectorBVNLast4        string `gorm:"size:4"`
+	BVNVerified             bool   `gorm:"default:false"`
+	RCVerified              bool   `gorm:"default:false"`
+	IsVerified              bool   `gorm:"default:false"`
 	VFDAccountNumber        *string
 	VFDAccountName          *string
 	PayrollRequiresApproval bool `gorm:"default:true"`
@@ -100,6 +104,10 @@ func (b *Business) ToDomain() *domain.Business {
 		RCNumber:                b.RCNumber,
 		IncorporationDate:       b.IncorporationDate,
 		DirectorBVN:             b.DirectorBVN,
+		DirectorBVNLast4:        b.DirectorBVNLast4,
+		BVNVerified:             b.BVNVerified,
+		RCVerified:              b.RCVerified,
+		IsVerified:              b.IsVerified,
 		VFDAccountNumber:        b.VFDAccountNumber,
 		VFDAccountName:          b.VFDAccountName,
 		PayrollRequiresApproval: b.PayrollRequiresApproval,
@@ -128,6 +136,10 @@ func BusinessFromDomain(b *domain.Business) *Business {
 		RCNumber:                b.RCNumber,
 		IncorporationDate:       b.IncorporationDate,
 		DirectorBVN:             b.DirectorBVN,
+		DirectorBVNLast4:        b.DirectorBVNLast4,
+		BVNVerified:             b.BVNVerified,
+		RCVerified:              b.RCVerified,
+		IsVerified:              b.IsVerified,
 		VFDAccountNumber:        b.VFDAccountNumber,
 		VFDAccountName:          b.VFDAccountName,
 		PayrollRequiresApproval: b.PayrollRequiresApproval,
@@ -364,8 +376,10 @@ type PayrollRun struct {
 	ScheduledFor     time.Time
 	ProcessedAt      *time.Time
 	PaymentReference string
-	RejectionReason  string
-	Entries          []PayrollRunEntry `gorm:"foreignKey:PayrollRunID"`
+	RejectionReason    string
+	TotalEmployerCosts int64
+	TotalCostToCompany int64
+	Entries            []PayrollRunEntry `gorm:"foreignKey:PayrollRunID"`
 }
 
 func (pr *PayrollRun) ToDomain() *domain.PayrollRun {
@@ -390,8 +404,10 @@ func (pr *PayrollRun) ToDomain() *domain.PayrollRun {
 		ScheduledFor:     pr.ScheduledFor,
 		ProcessedAt:      pr.ProcessedAt,
 		PaymentReference: pr.PaymentReference,
-		RejectionReason:  pr.RejectionReason,
-		Entries:          entries,
+		RejectionReason:    pr.RejectionReason,
+		TotalEmployerCosts: pr.TotalEmployerCosts,
+		TotalCostToCompany: pr.TotalCostToCompany,
+		Entries:             entries,
 	}
 }
 
@@ -417,21 +433,27 @@ func PayrollRunFromDomain(pr *domain.PayrollRun) *PayrollRun {
 		ScheduledFor:     pr.ScheduledFor,
 		ProcessedAt:      pr.ProcessedAt,
 		PaymentReference: pr.PaymentReference,
-		RejectionReason:  pr.RejectionReason,
-		Entries:          entries,
+		RejectionReason:    pr.RejectionReason,
+		TotalEmployerCosts: pr.TotalEmployerCosts,
+		TotalCostToCompany: pr.TotalCostToCompany,
+		Entries:             entries,
 	}
 }
 
 // --- PayrollRunEntry ---
 type PayrollRunEntry struct {
 	gorm.Model
-	PayrollRunID    uint
-	EmployeeID      uint
-	GrossPay        int64
-	TotalDeductions int64
-	Bonuses         int64
-	NetPay          int64
-	Details         []PayrollRunEntryDetail `gorm:"foreignKey:PayrollRunEntryID"`
+	PayrollRunID       uint
+	EmployeeID         uint
+	GrossPay           int64
+	TotalDeductions    int64
+	Bonuses            int64
+	NetPay             int64
+	EmployerPension    int64
+	EmployerNSITF      int64
+	TotalEmployerCost  int64
+	TotalCostToCompany int64
+	Details            []PayrollRunEntryDetail `gorm:"foreignKey:PayrollRunEntryID"`
 }
 
 func (e *PayrollRunEntry) ToDomain() *domain.PayrollRunEntry {
@@ -452,8 +474,12 @@ func (e *PayrollRunEntry) ToDomain() *domain.PayrollRunEntry {
 		GrossPay:        e.GrossPay,
 		TotalDeductions: e.TotalDeductions,
 		Bonuses:         e.Bonuses,
-		NetPay:          e.NetPay,
-		Details:         details,
+		NetPay:             e.NetPay,
+		EmployerPension:    e.EmployerPension,
+		EmployerNSITF:      e.EmployerNSITF,
+		TotalEmployerCost:  e.TotalEmployerCost,
+		TotalCostToCompany: e.TotalCostToCompany,
+		Details:             details,
 	}
 }
 
@@ -475,8 +501,12 @@ func PayrollRunEntryFromDomain(e *domain.PayrollRunEntry) *PayrollRunEntry {
 		GrossPay:        e.GrossPay,
 		TotalDeductions: e.TotalDeductions,
 		Bonuses:         e.Bonuses,
-		NetPay:          e.NetPay,
-		Details:         details,
+		NetPay:             e.NetPay,
+		EmployerPension:    e.EmployerPension,
+		EmployerNSITF:      e.EmployerNSITF,
+		TotalEmployerCost:  e.TotalEmployerCost,
+		TotalCostToCompany: e.TotalCostToCompany,
+		Details:             details,
 	}
 }
 

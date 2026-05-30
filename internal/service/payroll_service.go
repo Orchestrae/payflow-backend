@@ -190,9 +190,17 @@ func (s *payrollService) CalculatePayrollRun(ctx context.Context, businessID uin
 	var totalGross, totalDeductions, totalNet, totalEmployerCosts int64
 	runEntries := make([]domain.PayrollRunEntry, 0, len(employees))
 
+	var skippedEmployees []string
 	for _, emp := range employees {
 		if emp.Cadre == nil {
-			log.Warn().Uint("employee_id", emp.ID).Str("employee_name", emp.FullName).Uint("business_id", businessID).Msg("Employee without cadre")
+			skippedEmployees = append(skippedEmployees, fmt.Sprintf("%s (no cadre)", emp.FullName))
+			log.Warn().Uint("employee_id", emp.ID).Str("employee_name", emp.FullName).Msg("Employee without cadre — skipped")
+			continue
+		}
+
+		if len(emp.Cadre.EarningComponents) == 0 {
+			skippedEmployees = append(skippedEmployees, fmt.Sprintf("%s (cadre '%s' has no earning components)", emp.FullName, emp.Cadre.Name))
+			log.Warn().Uint("employee_id", emp.ID).Str("cadre", emp.Cadre.Name).Msg("Cadre has zero earning components — skipped")
 			continue
 		}
 
@@ -378,6 +386,18 @@ func (s *payrollService) CalculatePayrollRun(ctx context.Context, businessID uin
 	now := time.Now()
 	// Normalize period to first day of the month
 	normalizedPeriod := time.Date(period.Year(), period.Month(), 1, 0, 0, 0, 0, time.UTC)
+
+	if len(runEntries) == 0 {
+		msg := "no employees could be processed for payroll"
+		if len(skippedEmployees) > 0 {
+			msg = fmt.Sprintf("all employees were skipped: %v", skippedEmployees)
+		}
+		return nil, fmt.Errorf("%w: %s", domain.ErrValidationFailed, msg)
+	}
+
+	if len(skippedEmployees) > 0 {
+		log.Warn().Strs("skipped", skippedEmployees).Msgf("%d employees skipped during payroll calculation", len(skippedEmployees))
+	}
 
 	payrollRun := &domain.PayrollRun{
 		BusinessID:         businessID,

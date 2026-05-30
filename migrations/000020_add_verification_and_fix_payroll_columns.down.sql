@@ -1,0 +1,10 @@
+ALTER TABLE businesses DROP COLUMN IF EXISTS director_bvn_last4;
+ALTER TABLE businesses DROP COLUMN IF EXISTS bvn_verified;
+ALTER TABLE businesses DROP COLUMN IF EXISTS rc_verified;
+ALTER TABLE businesses DROP COLUMN IF EXISTS is_verified;
+ALTER TABLE payroll_runs DROP COLUMN IF EXISTS total_employer_costs;
+ALTER TABLE payroll_runs DROP COLUMN IF EXISTS total_cost_to_company;
+ALTER TABLE payroll_run_entries DROP COLUMN IF EXISTS employer_pension;
+ALTER TABLE payroll_run_entries DROP COLUMN IF EXISTS employer_nsitf;
+ALTER TABLE payroll_run_entries DROP COLUMN IF EXISTS total_employer_cost;
+ALTER TABLE payroll_run_entries DROP COLUMN IF EXISTS total_cost_to_company;
