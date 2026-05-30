@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/rs/zerolog/log"
+
 	"payflow/internal/domain"
 	"payflow/internal/repository"
 	"payflow/internal/service/provider"
@@ -215,9 +217,20 @@ func (s *walletService) RecordDeposit(ctx context.Context, businessID uint, noti
 	}
 
 	if err := s.walletTxRepo.Create(ctx, tx); err != nil {
-		// Rollback wallet balance update atomically (best effort)
-		s.walletRepo.IncrementBalance(ctx, businessID, -notification.Amount)
-		return fmt.Errorf("failed to record deposit transaction: %w", err)
+		// Retry once before rolling back (network glitch, connection pool)
+		if retryErr := s.walletTxRepo.Create(ctx, tx); retryErr != nil {
+			// Both attempts failed — rollback balance atomically
+			if _, rollbackErr := s.walletRepo.IncrementBalance(ctx, businessID, -notification.Amount); rollbackErr != nil {
+				// CRITICAL: Both transaction record AND rollback failed
+				// Balance is inflated — needs manual reconciliation
+				log.Error().Err(rollbackErr).
+					Int64("amount", notification.Amount).
+					Uint("business_id", businessID).
+					Str("reference", notification.Reference).
+					Msg("CRITICAL: Deposit rollback failed — balance may be inconsistent, manual reconciliation needed")
+			}
+			return fmt.Errorf("failed to record deposit transaction: %w", retryErr)
+		}
 	}
 
 	return nil

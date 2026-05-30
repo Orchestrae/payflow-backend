@@ -374,6 +374,24 @@ func (s *transferService) ExecuteBatchTransfer(ctx context.Context, businessID u
 		}
 	}
 
+	// Record withdrawals for successful transfers + unlock failed ones
+	if s.walletService != nil {
+		for i, r := range responses {
+			if r.Success || r.Status == "processing" || r.Status == "pending" {
+				// Record withdrawal for this successful payout
+				amount, _ := s.parseAmountToKobo(transferRecords[i].Amount)
+				ref := fmt.Sprintf("batch-%s-%s", req.BatchReference, r.Reference)
+				s.walletService.RecordWithdrawal(ctx, businessID, transferRecords[i].ID, amount, 0, ref, r.TransactionID)
+			} else {
+				// Unlock balance for failed transfer
+				amount, _ := s.parseAmountToKobo(transferRecords[i].Amount)
+				if amount > 0 {
+					s.walletService.UnlockBalance(ctx, businessID, amount)
+				}
+			}
+		}
+	}
+
 	slog.Info("Batch transfer completed",
 		"total", len(req.Transfers),
 		"successful", successCount,
