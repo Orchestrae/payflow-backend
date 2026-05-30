@@ -126,7 +126,8 @@ func main() {
 
 	// Core Services
 	authSvc := service.NewAuthService(userRepo, businessRepo, txer, cfg.JWTSecret, cfg.JWTExpirationDuration, vfdSvc,
-		service.WithNotificationService(notificationSvc, cfg.AppURL))
+		service.WithNotificationService(notificationSvc, cfg.AppURL),
+		service.WithCadreRepo(cadreRepo))
 	employeeSvc := service.NewEmployeeService(employeeRepo, cadreRepo)
 	cadreSvc := service.NewCadreService(cadreRepo, cacheSvc)
 	deductionRuleSvc := service.NewDeductionRuleService(deductionRuleRepo)

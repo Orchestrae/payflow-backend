@@ -18,6 +18,7 @@ import (
 type authService struct {
 	userRepo        repository.UserRepository
 	businessRepo    repository.BusinessRepository
+	cadreRepo       repository.CadreRepository
 	txer            repository.Transactioner
 	jwtSecret       string
 	jwtExpiry       time.Duration
@@ -58,6 +59,13 @@ func WithNotificationService(ns NotificationService, appURL string) AuthServiceO
 	return func(s *authService) {
 		s.notificationSvc = ns
 		s.appURL = appURL
+	}
+}
+
+// WithCadreRepo sets the cadre repository for default cadre creation on registration.
+func WithCadreRepo(repo repository.CadreRepository) AuthServiceOption {
+	return func(s *authService) {
+		s.cadreRepo = repo
 	}
 }
 
@@ -148,7 +156,31 @@ func (s *authService) RegisterBusiness(ctx context.Context, name, email, passwor
 		return nil, nil, fmt.Errorf("could not link admin to business: %w", err)
 	}
 
-	// 5. Try to create VFD corporate account (optional - may not be configured)
+	// 5. Store BVN securely (last 4 only for display)
+	if len(directorBVN) >= 4 {
+		business.DirectorBVNLast4 = directorBVN[len(directorBVN)-4:]
+	}
+	businessRepoTx.Update(ctx, business)
+
+	// 6. Auto-create default cadre with standard Nigerian salary components
+	if s.cadreRepo != nil {
+		defaultCadre := &domain.Cadre{
+			BusinessID: business.ID,
+			Name:       "Standard",
+			EarningComponents: []domain.EarningComponent{
+				{Name: "Basic Salary", Amount: 15000000, ComponentType: domain.ComponentBasic},       // NGN 150,000
+				{Name: "Housing Allowance", Amount: 5000000, ComponentType: domain.ComponentHousing},  // NGN 50,000
+				{Name: "Transport Allowance", Amount: 3000000, ComponentType: domain.ComponentTransport}, // NGN 30,000
+			},
+		}
+		if err := s.cadreRepo.Create(ctx, defaultCadre); err != nil {
+			log.Warn().Err(err).Msg("Failed to create default cadre — business can create manually")
+		} else {
+			log.Info().Uint("business_id", business.ID).Msg("Default cadre 'Standard' created")
+		}
+	}
+
+	// 7. Try to create VFD corporate account (optional - may not be configured)
 	var corporateAccount *vfd.CorporateAccount
 	if s.vfdService != nil {
 		vfdDetails := vfd.NewAccountDetails{
@@ -186,6 +218,21 @@ func (s *authService) RegisterBusiness(ctx context.Context, name, email, passwor
 		s.txer.Rollback(tx)
 		return nil, nil, fmt.Errorf("failed to commit registration transaction: %w", err)
 	}
+
+	// Send welcome email (non-blocking)
+	if s.notificationSvc != nil {
+		go s.notificationSvc.SendEmail(context.Background(), email,
+			"Welcome to PayFlow!",
+			fmt.Sprintf("Hi! Your business '%s' has been registered on PayFlow.\n\n"+
+				"We've created a default salary structure ('Standard') to get you started.\n\n"+
+				"Next steps:\n"+
+				"1. Log in at %s/login\n"+
+				"2. Add your employees\n"+
+				"3. Run your first payroll\n\n"+
+				"Welcome aboard!", name, s.appURL))
+	}
+
+	log.Info().Str("email", email).Str("business", name).Msg("Business registered with default onboarding")
 
 	return adminUser, corporateAccount, nil
 }
