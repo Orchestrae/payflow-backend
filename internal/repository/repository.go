@@ -203,6 +203,13 @@ type LeaveBalanceRepository interface {
 }
 
 // AuditRepository defines the interface for audit log operations
+type LedgerRepository interface {
+	CreatePair(ctx context.Context, debit, credit *domain.LedgerEntry) error
+	FindByBusinessID(ctx context.Context, businessID uint, page, limit int) ([]*domain.LedgerEntry, int, error)
+	GetBalanceByAccount(ctx context.Context, businessID uint, accountType domain.AccountType) (int64, error)
+	Reconcile(ctx context.Context, businessID uint) (totalCredits, totalDebits, ledgerBalance int64, err error)
+}
+
 type AuditRepository interface {
 	Create(ctx context.Context, log *domain.AuditLog) error
 	FindByBusinessID(ctx context.Context, businessID uint, page, limit int) ([]*domain.AuditLog, int, error)

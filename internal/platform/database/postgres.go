@@ -160,6 +160,7 @@ func AutoMigrateAll(db *gorm.DB) error {
 		&domain.SubscriptionPlan{},
 		&domain.Subscription{},
 		&domain.Invoice{},
+		&domain.LedgerEntry{},
 	}
 
 	for _, model := range models {
