@@ -242,6 +242,7 @@ func NewRouter(
 			r.Route("/employees", func(r chi.Router) {
 				r.Post("/", employeeHandler.CreateEmployee)
 				r.Post("/import", employeeHandler.ImportEmployees)
+				r.Get("/import/template", employeeHandler.DownloadImportTemplate)
 				r.Get("/", employeeHandler.ListEmployees)
 				r.Get("/{employeeID}", employeeHandler.GetEmployeeByID)
 				r.Put("/{employeeID}", employeeHandler.UpdateEmployee)

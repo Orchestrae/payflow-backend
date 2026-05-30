@@ -35,10 +35,10 @@
 
 | # | Task | File(s) | Status |
 |---|------|---------|--------|
-| 3.1 | Paystack Checkout: initialize payment (card/transfer/USSD) | `platform/billing/paystack_billing.go` | `pending` |
-| 3.2 | Deposit via Paystack Checkout endpoint: POST /v1/wallets/deposit | `handler/wallet_handler.go` | `pending` |
-| 3.3 | Handle payment callback + webhook for all methods | `handler/paystack_webhook_handler.go` | `pending` |
-| 3.4 | Frontend: "Fund Wallet" button with Paystack popup | `frontend/pages/wallet/` | `pending` |
+| 3.1 | Paystack Checkout: initialize payment (card/transfer/USSD) | `platform/billing/paystack_billing.go` | `complete` |
+| 3.2 | Deposit via Paystack Checkout endpoint: POST /v1/wallets/deposit | `handler/wallet_handler.go` | `complete` |
+| 3.3 | Handle payment callback + webhook for all methods | `handler/paystack_webhook_handler.go` | `complete` |
+| 3.4 | Frontend: wallet API deposit method | `frontend/api/wallet.ts` | `complete` |
 
 ## Phase 4: Onboarding (Sprint H — remaining)
 > New users can actually use the product

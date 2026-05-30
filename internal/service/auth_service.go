@@ -19,6 +19,8 @@ type authService struct {
 	userRepo        repository.UserRepository
 	businessRepo    repository.BusinessRepository
 	cadreRepo       repository.CadreRepository
+	planRepo        repository.SubscriptionPlanRepository
+	subRepo         repository.SubscriptionRepository
 	txer            repository.Transactioner
 	jwtSecret       string
 	jwtExpiry       time.Duration
@@ -66,6 +68,14 @@ func WithNotificationService(ns NotificationService, appURL string) AuthServiceO
 func WithCadreRepo(repo repository.CadreRepository) AuthServiceOption {
 	return func(s *authService) {
 		s.cadreRepo = repo
+	}
+}
+
+// WithSubscriptionRepos sets repos for auto-assigning Free plan on registration.
+func WithSubscriptionRepos(planRepo repository.SubscriptionPlanRepository, subRepo repository.SubscriptionRepository) AuthServiceOption {
+	return func(s *authService) {
+		s.planRepo = planRepo
+		s.subRepo = subRepo
 	}
 }
 
@@ -180,7 +190,30 @@ func (s *authService) RegisterBusiness(ctx context.Context, name, email, passwor
 		}
 	}
 
-	// 7. Try to create VFD corporate account (optional - may not be configured)
+	// 7. Auto-assign Free subscription plan
+	if s.planRepo != nil && s.subRepo != nil {
+		freePlan, err := s.planRepo.FindByTier(ctx, domain.PlanFree)
+		if err == nil && freePlan != nil {
+			now := time.Now()
+			sub := &domain.Subscription{
+				BusinessID:         business.ID,
+				PlanID:             freePlan.ID,
+				Status:             "active",
+				CurrentPeriodStart: now,
+				CurrentPeriodEnd:   now.AddDate(100, 0, 0), // Free = never expires
+			}
+			if err := s.subRepo.Create(ctx, sub); err != nil {
+				log.Warn().Err(err).Msg("Failed to assign Free plan — business can subscribe manually")
+			} else {
+				business.SubscriptionTier = domain.PlanFree
+				business.SubscriptionStatus = "active"
+				businessRepoTx.Update(ctx, business)
+				log.Info().Uint("business_id", business.ID).Msg("Free plan assigned")
+			}
+		}
+	}
+
+	// 8. Try to create VFD corporate account (optional - may not be configured)
 	var corporateAccount *vfd.CorporateAccount
 	if s.vfdService != nil {
 		vfdDetails := vfd.NewAccountDetails{

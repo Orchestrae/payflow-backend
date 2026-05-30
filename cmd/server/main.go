@@ -124,10 +124,15 @@ func main() {
 	// Cache service (optional — nil-safe, degrades gracefully)
 	cacheSvc := cache.NewCacheService(redisClient)
 
+	// Subscription repos (needed early for auth onboarding)
+	planRepo := postgres.NewSubscriptionPlanRepository(db)
+	subRepo := postgres.NewSubscriptionRepository(db)
+
 	// Core Services
 	authSvc := service.NewAuthService(userRepo, businessRepo, txer, cfg.JWTSecret, cfg.JWTExpirationDuration, vfdSvc,
 		service.WithNotificationService(notificationSvc, cfg.AppURL),
-		service.WithCadreRepo(cadreRepo))
+		service.WithCadreRepo(cadreRepo),
+		service.WithSubscriptionRepos(planRepo, subRepo))
 	employeeSvc := service.NewEmployeeService(employeeRepo, cadreRepo)
 	cadreSvc := service.NewCadreService(cadreRepo, cacheSvc)
 	deductionRuleSvc := service.NewDeductionRuleService(deductionRuleRepo)
@@ -205,8 +210,6 @@ func main() {
 	verificationSvc := service.NewAccountVerificationService(verificationPaystackClient)
 
 	// Platform & Billing services
-	planRepo := postgres.NewSubscriptionPlanRepository(db)
-	subRepo := postgres.NewSubscriptionRepository(db)
 	invoiceRepo := postgres.NewInvoiceRepository(db)
 	var paystackBillingClient *billingpkg.PaystackBillingClient
 	if cfg.PaystackSecretKey != "" {

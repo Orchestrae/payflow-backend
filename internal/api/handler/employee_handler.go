@@ -167,6 +167,17 @@ func (h *EmployeeHandler) UpdateEmployee(w http.ResponseWriter, r *http.Request)
 	response.RespondWithJSON(w, http.StatusOK, updatedEmployee)
 }
 
+// DownloadImportTemplate handles GET /employees/import/template
+func (h *EmployeeHandler) DownloadImportTemplate(w http.ResponseWriter, r *http.Request) {
+	template := "full_name,email,cadre_id,bank_name,bank_code,bank_account_number,tin,pension_rsa_pin,nhf_number,annual_rent_paid,phone_number\n"
+	template += "John Doe,john@example.com,1,GTBank,058,0123456789,1234567890,PEN001234,NHF001234,240000000,08012345678\n"
+
+	w.Header().Set("Content-Type", "text/csv")
+	w.Header().Set("Content-Disposition", `attachment; filename="employee_import_template.csv"`)
+	w.WriteHeader(http.StatusOK)
+	w.Write([]byte(template))
+}
+
 // ImportEmployees handles POST /employees/import (CSV upload)
 func (h *EmployeeHandler) ImportEmployees(w http.ResponseWriter, r *http.Request) {
 	claims, ok := middleware.GetClaimsFromContext(r.Context())
