@@ -195,6 +195,22 @@ Migration 000014: audit_logs table + indexes
 - Platform API: GET /platform/stats, GET /platform/organizations, etc.
 - Migration 000019: subscription_plans (seeded), subscriptions, invoices tables
 
+### Sprint F: Critical Security + Data Integrity Fixes (2026-05-30) ✅
+- FIXED: PayrollRun/Entry missing employer cost columns in postgres model (data loss bug)
+- FIXED: BVN numeric validation (was accepting letters)
+- FIXED: BVN verify-then-discard approach (store only last4 + verified flag, never in API)
+- FIXED: Business verification status (BVNVerified, RCVerified, IsVerified)
+- FIXED: Silent cadre skip in payroll (now tracked + reported)
+- FIXED: Zero earning components blocked with clear error
+- FIXED: Empty payroll returns error instead of silent success
+- Migration 000020: verification fields + missing payroll columns
+
+### Production Credentials Configured (2026-05-30)
+- Brevo SMTP: smtp-relay.brevo.com (set via Railway dashboard)
+- Paystack sandbox: sk_test_ key configured
+- Redis: added on Railway
+- Enabled provider: paystack (default)
+
 ## KNOWN ISSUES
 - payroll_service.go (726 lines) — should split calc vs processing
 - transfer_service.go (580 lines) — should split single vs batch
