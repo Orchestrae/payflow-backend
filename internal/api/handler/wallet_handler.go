@@ -13,11 +13,14 @@ import (
 	"strings"
 	"time"
 
+	"fmt"
+
 	"payflow/internal/api/middleware"
 	"payflow/internal/api/request"
 	"payflow/internal/api/response"
 	"payflow/internal/config"
 	"payflow/internal/domain"
+	"payflow/internal/platform/billing"
 	"payflow/internal/platform/korapay"
 	"payflow/internal/service"
 
@@ -30,7 +33,10 @@ type WalletHandler struct {
 	accountHolderService service.AccountHolderService
 	koraClient           *korapay.Client
 	koraBaseURL          string
-	koraSecretKey        string // For webhook signature verification
+	koraSecretKey        string
+	paystackSecretKey    string
+	paystackBaseURL      string
+	appURL               string
 	validate             *validator.Validate
 }
 
@@ -46,6 +52,9 @@ func NewWalletHandler(
 		koraClient:           koraClient,
 		koraBaseURL:          cfg.KoraPayBaseURL,
 		koraSecretKey:        cfg.KoraPayAPIKey,
+		paystackSecretKey:    cfg.PaystackSecretKey,
+		paystackBaseURL:      cfg.PaystackBaseURL,
+		appURL:               cfg.AppURL,
 		validate:             validator.New(),
 	}
 }
@@ -682,4 +691,53 @@ func (h *WalletHandler) HandleGenerateFileUploadURL(w http.ResponseWriter, r *ht
 	}
 
 	response.RespondWithJSON(w, http.StatusOK, result)
+}
+
+// HandleInitiateDeposit handles POST /v1/wallets/deposit
+// Initializes a Paystack payment (card/transfer/USSD) and returns the payment URL.
+func (h *WalletHandler) HandleInitiateDeposit(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Amount int64  `json:"amount" validate:"required,min=10000"`
+		Email  string `json:"email"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		response.RespondWithError(w, domain.ErrValidationFailed)
+		return
+	}
+
+	claims, ok := middleware.GetClaimsFromContext(r.Context())
+	if !ok {
+		response.RespondWithError(w, domain.ErrUnauthorized)
+		return
+	}
+
+	if h.paystackSecretKey == "" {
+		response.RespondWithJSON(w, http.StatusServiceUnavailable, map[string]string{
+			"error": "Payment provider not configured",
+		})
+		return
+	}
+
+	ref := fmt.Sprintf("DEP-%d-%d", claims.BusinessID, time.Now().UnixNano())
+	email := req.Email
+	if email == "" {
+		email = fmt.Sprintf("biz-%d@payflow.local", claims.BusinessID)
+	}
+	callbackURL := fmt.Sprintf("%s/wallet?deposit=success", h.appURL)
+
+	// Initialize Paystack transaction via billing client
+	billingClient := billing.NewPaystackBillingClient(h.paystackSecretKey, h.paystackBaseURL)
+	paymentURL, err := billingClient.InitializeTransaction(r.Context(), email, req.Amount, ref, "", callbackURL)
+	if err != nil {
+		slog.Error("Failed to initialize deposit", "error", err)
+		response.RespondWithError(w, domain.ErrPaymentGatewayFailed)
+		return
+	}
+
+	response.RespondWithJSON(w, http.StatusOK, map[string]interface{}{
+		"payment_url": paymentURL,
+		"reference":   ref,
+		"amount":      req.Amount,
+		"message":     "Redirect to complete payment. Wallet will be credited on success.",
+	})
 }

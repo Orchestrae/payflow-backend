@@ -361,6 +361,7 @@ func NewRouter(
 			r.Get("/", walletHandler.HandleGetWallet)
 			r.Get("/balance", walletHandler.HandleGetBalance)
 			r.Get("/transactions", walletHandler.HandleGetTransactions)
+			r.Post("/deposit", walletHandler.HandleInitiateDeposit)
 
 			// Account Holder / KYC Management
 			r.Route("/account-holders", func(r chi.Router) {

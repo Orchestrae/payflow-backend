@@ -12,19 +12,19 @@
 
 | # | Task | File(s) | Status |
 |---|------|---------|--------|
-| 1.1 | Fix batch transfer: record withdrawal for each successful payout | `transfer_service.go` | `pending` |
-| 1.2 | Fix batch transfer: unlock balance for failed payouts | `transfer_service.go` | `pending` |
-| 1.3 | Wrap deposit in DB transaction (balance + record atomic) | `wallet_service.go` | `pending` |
-| 1.4 | Fix deposit rollback to use same DB transaction | `wallet_service.go` | `pending` |
+| 1.1 | Fix batch transfer: record withdrawal for each successful payout | `transfer_service.go` | `complete` |
+| 1.2 | Fix batch transfer: unlock balance for failed payouts | `transfer_service.go` | `complete` |
+| 1.3 | Wrap deposit in DB transaction (balance + record atomic) | `wallet_service.go` | `complete` |
+| 1.4 | Fix deposit rollback to use same DB transaction | `wallet_service.go` | `complete` |
 
 ## Phase 2: Double-Entry Ledger (Sprint L)
 > Proper financial accounting — every kobo tracked
 
 | # | Task | File(s) | Status |
 |---|------|---------|--------|
-| 2.1 | Create `ledger_entries` domain model (debit/credit, account type) | `domain/ledger.go` | `pending` |
-| 2.2 | Create ledger repository + migration 000021 | `postgres/ledger_repo.go` | `pending` |
-| 2.3 | Create ledger service (record entry, get balance, reconcile) | `service/ledger_service.go` | `pending` |
+| 2.1 | Create `ledger_entries` domain model (debit/credit, account type) | `domain/ledger.go` | `complete` |
+| 2.2 | Create ledger repository + migration 000021 | `postgres/ledger_repo.go` | `complete` |
+| 2.3 | Create ledger service (record entry, get balance, reconcile) | `service/ledger_service.go` | `complete` |
 | 2.4 | Wire ledger into deposit flow (credit wallet, debit external) | `wallet_service.go` | `pending` |
 | 2.5 | Wire ledger into withdrawal flow (debit wallet, credit external) | `wallet_service.go` | `pending` |
 | 2.6 | Reconciliation endpoint: SUM(credits) - SUM(debits) vs balance | `handler/ledger_handler.go` | `pending` |
