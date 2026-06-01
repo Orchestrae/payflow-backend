@@ -54,3 +54,23 @@
 | A7 | Amend + Reverse buttons: Amend (draft), Reverse (completed) with modal, API methods + React Query mutations | Complete — payroll.ts + useApi.ts + PayrollDetailPage |
 | A8 | Request Leave form: modal with employee/type dropdowns, date range, reason, POST /v1/leave/requests | Complete — LeaveListPage updated |
 | Verify | `go build`, `go vet`, `go test ./...`, `npx tsc --noEmit` | All pass — 0 errors, 10 test packages green |
+
+### Session: 2026-06-01 — Remaining Phases Execution
+
+| Phase | Action | Result |
+|-------|--------|--------|
+| 6.4 | Org-specific provider key override | Complete — migration 000025, domain/repo/service/handler, frontend "Use your own API keys" section |
+| 7.2 | Employee self-service auth | Complete — POST /v1/auth/employee/login, POST /v1/employees/:id/create-login, employee JWT with employee_id claim, migration 000026 |
+| 7.6 | Employee self-service portal | Complete — SelfServiceLayout (top-nav), 5 pages (dashboard, payslips, leave, profile, loans), /self-service/* routes |
+| 8.2 | Weekly provider reconciliation | Complete — Paystack balance API, weekly background job, alert emails, GET /v1/platform/reconciliation/provider |
+| 10.5 | Cache extension | Complete — deduction rules (5min TTL), wallet balance (30s TTL, invalidated on deposit/withdrawal) |
+| 10.6 | Read replica | Complete — DATABASE_READ_URL env var, ledger queries routed to replica |
+| 10.7 | Async payroll processing | Complete — submit returns 202 + job_id, GET /payroll-runs/:id/status, migration 000027 |
+| 9.1 | Integration tests (testcontainers) | Complete — 5+ tests with real PostgreSQL |
+| 9.2 | Frontend tests (Vitest + RTL) | Complete — 8+ component tests |
+| 9.5 | Load tests (k6) | Complete — tests/load/payroll_load.js |
+| 9.6 | Security tests | Complete — SQL injection, XSS, auth bypass, IDOR tests |
+| 9.7 | E2E API contract tests | Complete — full API flow tests |
+| 11 | Homepage & landing page | Complete — conversion-optimized with features grid, pricing, How It Works |
+| 12 | Frontend content audit | Complete — sidebar nav entries, dashboard quick links |
+| 13 | Documentation refresh | Complete — full rewrite of all docs |
