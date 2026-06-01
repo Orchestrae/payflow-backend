@@ -30,6 +30,7 @@ import (
 	"payflow/internal/service/provider"
 	vfd2 "payflow/internal/service/vfd"
 
+	"github.com/hibiken/asynq"
 	"gorm.io/gorm"
 )
 
@@ -116,7 +117,16 @@ func main() {
 	koraClient := korapay.NewClient(cfg.KoraPayAPIKey, cfg.KoraPayBaseURL)
 	payoutSvc := korapay.NewPayoutService(koraClient)
 	// Email service (configurable SMTP — MailHog for dev, Brevo/SendGrid for production)
-	notificationSvc := email.NewEmailService(cfg)
+	directEmailSvc := email.NewEmailService(cfg)
+	// Wrap email in async queue if Redis is available
+	var asynqEmailClient *asynq.Client
+	if cfg.RedisURL != "" {
+		if redisOpt, err := asynq.ParseRedisURI(cfg.RedisURL); err == nil {
+			asynqEmailClient = asynq.NewClient(redisOpt)
+			log.Info().Msg("Email delivery via Asynq queue (Redis-backed, with retry)")
+		}
+	}
+	notificationSvc := email.NewAsyncEmailService(directEmailSvc, asynqEmailClient)
 	vfdClient := vfd.NewClient(cfg.VFDBaseURL, cfg.VFDConsumerKey, cfg.VFDConsumerSecret)
 	vfdSvc := vfd.NewVFDService(vfdClient)
 	log.Info().Msg("External platform services initialized (Kora, VFD, Notifications)")
@@ -133,7 +143,14 @@ func main() {
 		service.WithNotificationService(notificationSvc, cfg.AppURL),
 		service.WithCadreRepo(cadreRepo),
 		service.WithSubscriptionRepos(planRepo, subRepo))
-	employeeSvc := service.NewEmployeeService(employeeRepo, cadreRepo)
+	// Account verification (uses Paystack if configured) — needed early for employee bank resolve
+	var verificationPaystackClient *paystack.Client
+	if cfg.PaystackSecretKey != "" {
+		verificationPaystackClient = paystack.NewClient(cfg.PaystackSecretKey, cfg.PaystackBaseURL)
+	}
+	verificationSvc := service.NewAccountVerificationService(verificationPaystackClient)
+
+	employeeSvc := service.NewEmployeeService(employeeRepo, cadreRepo, service.WithVerificationService(verificationSvc))
 	cadreSvc := service.NewCadreService(cadreRepo, cacheSvc)
 	deductionRuleSvc := service.NewDeductionRuleService(deductionRuleRepo)
 	webhookSvc := vfd2.NewVFDWebhookService(webhookRepo, businessRepo, vfdSvc, txer)
@@ -202,12 +219,7 @@ func main() {
 	auditSvc := service.NewAuditService(auditRepo)
 	notifRepo := postgres.NewNotificationRepository(db)
 	notifCenterSvc := service.NewNotificationCenterService(notifRepo, userRepo)
-	// Account verification (uses Paystack if configured)
-	var verificationPaystackClient *paystack.Client
-	if cfg.PaystackSecretKey != "" {
-		verificationPaystackClient = paystack.NewClient(cfg.PaystackSecretKey, cfg.PaystackBaseURL)
-	}
-	verificationSvc := service.NewAccountVerificationService(verificationPaystackClient)
+	// (verificationSvc already created above, before employeeSvc)
 
 	// Platform & Billing services
 	invoiceRepo := postgres.NewInvoiceRepository(db)
@@ -219,15 +231,46 @@ func main() {
 	platformSvc := platformsvc.NewPlatformService(businessRepo, userRepo, employeeRepo, subRepo, planRepo)
 	loanRepo := postgres.NewLoanRepository(db)
 	loanSvc := service.NewLoanService(loanRepo)
+
+	// Leave management
+	leaveTypeRepo := postgres.NewLeaveTypeRepository(db)
+	leaveRequestRepo := postgres.NewLeaveRequestRepository(db)
+	leaveBalanceRepo := postgres.NewLeaveBalanceRepository(db)
+	leaveSvc := service.NewLeaveService(leaveTypeRepo, leaveRequestRepo, leaveBalanceRepo)
 	log.Info().Msg("Business, audit, notification services initialized")
+
+	// Ledger (double-entry accounting)
+	ledgerRepo := postgres.NewLedgerRepository(db)
+	ledgerSvc := service.NewLedgerService(ledgerRepo)
+	log.Info().Msg("Ledger service initialized")
 
 	// Initialize wallet service with virtual account provider
 	walletSvc := service.NewWalletService(walletRepo, walletTxRepo, korapayVirtualAccountProvider)
+	// Wire ledger into wallet for automatic double-entry recording
+	if ws, ok := walletSvc.(interface{ SetLedgerService(service.LedgerService) }); ok {
+		ws.SetLedgerService(ledgerSvc)
+		log.Info().Msg("Ledger service wired into wallet service")
+	}
 	log.Info().Msg("Wallet service initialized")
 
 	// Initialize account holder service with account holder provider
 	accountHolderSvc := service.NewAccountHolderService(korapayAccountHolderProvider)
 	log.Info().Msg("Account holder service initialized")
+
+	// Reconciliation service (daily balance checks)
+	reconciliationSvc := service.NewReconciliationService(walletRepo, ledgerSvc)
+	// Start daily reconciliation as background job (runs every 24 hours)
+	go func() {
+		// Wait 1 minute after startup, then run every 24 hours
+		time.Sleep(1 * time.Minute)
+		for {
+			if err := reconciliationSvc.RunDailyReconciliation(context.Background()); err != nil {
+				log.Error().Err(err).Msg("Daily reconciliation failed")
+			}
+			time.Sleep(24 * time.Hour)
+		}
+	}()
+	log.Info().Msg("Daily reconciliation job scheduled")
 
 	// Wire wallet service into transfer service for balance checking
 	if transferSvcWithWallet, ok := transferSvcNew.(interface{ SetWalletService(service.WalletService) }); ok {
@@ -236,6 +279,7 @@ func main() {
 	} else {
 		log.Warn().Msg("Transfer service does not support SetWalletService - balance checking disabled")
 	}
+
 
 
 	// --- Phase 4: Resolving the Scheduler <-> Service Circular Dependency ---
@@ -268,6 +312,7 @@ func main() {
 		userRepo,
 		payoutScheduler,
 		transferSvcNew,
+		loanRepo,
 	)
 
 	// 3. Update scheduler with the PayrollService to resolve circular dependency
@@ -279,12 +324,35 @@ func main() {
 	}
 
 	// --- Phase 5: API Router & Server Startup ---
-	router := api.NewRouter(cfg, db, redisClient, authSvc, employeeSvc, cadreSvc, deductionRuleSvc, payrollSvc, webhookSvc, transferSvc, transferSvcNew, walletSvc, businessSvc, dashboardSvc, auditSvc, notifCenterSvc, verificationSvc, loanSvc, billingSvc, platformSvc, accountHolderSvc, koraClient, newTransferRepo, businessRepo)
+	// Platform settings (encrypted credential storage)
+	platformSettingRepo := postgres.NewPlatformSettingRepository(db)
+	encryptionKey := cfg.JWTSecret[:32] // Use first 32 bytes of JWT secret as encryption key
+	platformSettingsSvc := service.NewPlatformSettingsService(platformSettingRepo, encryptionKey)
+	log.Info().Msg("Platform settings service initialized (AES-256-GCM encryption)")
+
+	// Org-level provider key overrides
+	orgProviderSettingRepo := postgres.NewOrgProviderSettingRepository(db)
+	orgProviderSettingsSvc := service.NewOrgProviderSettingsService(orgProviderSettingRepo, encryptionKey)
+	log.Info().Msg("Org provider settings service initialized")
+
+	// Wire org provider key service into transfer service for org-level key overrides
+	if transferSvcWithOrg, ok := transferSvcNew.(interface{ SetOrgProviderKeySvc(service.OrgProviderSettingsService) }); ok {
+		transferSvcWithOrg.SetOrgProviderKeySvc(orgProviderSettingsSvc)
+		log.Info().Msg("Org provider key service wired into transfer service")
+	}
+
+	router := api.NewRouter(cfg, db, redisClient, authSvc, employeeSvc, cadreSvc, deductionRuleSvc, payrollSvc, webhookSvc, transferSvc, transferSvcNew, walletSvc, businessSvc, dashboardSvc, auditSvc, notifCenterSvc, verificationSvc, loanSvc, leaveSvc, ledgerSvc, platformSettingsSvc, orgProviderSettingsSvc, billingSvc, platformSvc, accountHolderSvc, koraClient, newTransferRepo, businessRepo)
 	log.Info().Msg("API router initialized")
 
 	server := &http.Server{
 		Addr:    ":" + cfg.ServerPort,
 		Handler: router,
+	}
+
+	// Register email handler with Asynq scheduler (if available)
+	if emailScheduler, ok := payoutScheduler.(interface{ SetEmailHandler(scheduler.EmailTaskHandler) }); ok {
+		emailScheduler.SetEmailHandler(notificationSvc)
+		log.Info().Msg("Email handler registered with Asynq scheduler")
 	}
 
 	// Start the background job scheduler

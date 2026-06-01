@@ -107,6 +107,10 @@ func NewRouter(
 	notifCenterSvc service.NotificationCenterService,
 	verificationSvc service.AccountVerificationService,
 	loanSvc service.LoanService,
+	leaveSvc service.LeaveService,
+	ledgerSvc service.LedgerService,
+	platformSettingsSvc service.PlatformSettingsService,
+	orgProviderSettingsSvc service.OrgProviderSettingsService,
 	billingSvc platform.BillingService,
 	platformSvc platform.PlatformService,
 	accountHolderSvc service.AccountHolderService,
@@ -157,7 +161,10 @@ func NewRouter(
 	platformHandler := handler.NewPlatformHandler(platformSvc)
 	selfServiceHandler := handler.NewSelfServiceHandler(employeeSvc, payrollSvc)
 	reportHandler := handler.NewReportHandler(payrollSvc, businessRepo)
+	ledgerHandler := handler.NewLedgerHandler(ledgerSvc, walletSvc)
+	leaveHandler := handler.NewLeaveHandler(leaveSvc)
 	walletHandler := handler.NewWalletHandler(walletSvc, accountHolderSvc, cfg, koraClient)
+	orgProviderSettingsHandler := handler.NewOrgProviderSettingsHandler(orgProviderSettingsSvc)
 
 	// --- Health Check ---
 	// /health — readiness probe (checks DB + Redis)
@@ -174,8 +181,7 @@ func NewRouter(
 		r.Post("/accept-invitation", authHandler.AcceptInvitation)
 		r.Post("/forgot-password", authHandler.ForgotPassword)
 		r.Post("/reset-password", authHandler.ResetPassword)
-		// r.Post("/forgot-password", authHandler.ForgotPassword)
-		// r.Post("/reset-password", authHandler.ResetPassword)
+		r.Post("/verify-email", authHandler.VerifyEmail)
 	})
 
 	// --- VFD Webhook Routes ---
@@ -195,8 +201,10 @@ func NewRouter(
 	// --- Paystack Webhook Routes ---
 	// Public endpoint for Paystack transfer status updates
 	paystackWebhookHandler := handler.NewPaystackWebhookHandler(cfg.PaystackSecretKey, transferRepo, walletSvc)
+	billingWebhookHandler := handler.NewBillingWebhookHandler(cfg.PaystackSecretKey, billingSvc)
 	r.Route("/paystack/webhooks", func(r chi.Router) {
 		r.Post("/", paystackWebhookHandler.HandleWebhook)
+		r.Post("/billing", billingWebhookHandler.HandleWebhook)
 	})
 
 	// --- Protected API v1 Group ---
@@ -215,8 +223,10 @@ func NewRouter(
 			r.Patch("/read-all", notifHandler.MarkAllAsRead)
 		})
 
-		// --- Bank Account Verification ---
+		// --- Verification ---
 		r.Get("/verify/bank-account", verificationHandler.HandleVerifyBankAccount)
+		r.Get("/verify/bvn", verificationHandler.HandleVerifyBVN)
+		r.Post("/auth/resend-verification", authHandler.ResendVerification)
 
 		// --- Employee Self-Service ---
 		r.Route("/me", func(r chi.Router) {
@@ -268,6 +278,8 @@ func NewRouter(
 				r.Post("/", payrollHandler.CreatePayrollRun)
 				r.Post("/{runID}/submit", payrollHandler.SubmitForApproval)
 				r.Post("/{runID}/process-now", payrollHandler.ProcessPayrollRunInstantly)
+				r.Put("/{runID}/amend", payrollHandler.AmendPayrollRun)
+				r.Post("/{runID}/reverse", payrollHandler.ReversePayrollRun)
 			})
 
 			// All authenticated roles can view payroll runs
@@ -320,6 +332,11 @@ func NewRouter(
 			r.Route("/business", func(r chi.Router) {
 				r.Get("/settings", businessHandler.GetSettings)
 				r.Patch("/settings", businessHandler.UpdateSettings)
+
+				// Org-level provider key overrides
+				r.Get("/provider-keys", orgProviderSettingsHandler.HandleListOrgKeys)
+				r.Put("/provider-keys/{provider}/{key}", orgProviderSettingsHandler.HandleSetOrgKey)
+				r.Delete("/provider-keys/{provider}/{key}", orgProviderSettingsHandler.HandleDeleteOrgKey)
 			})
 			// r.Route("/users", ...)
 		})
@@ -345,10 +362,28 @@ func NewRouter(
 			r.Get("/to-account", transferHandler.HandleGetTransfersByToAccount)
 		})
 
+		// --- Leave Management ---
+		r.Route("/leave", func(r chi.Router) {
+			r.Get("/types", leaveHandler.HandleListLeaveTypes)
+			r.Post("/types", leaveHandler.HandleCreateLeaveType)
+			r.Post("/requests", leaveHandler.HandleSubmitRequest)
+			r.Get("/requests", leaveHandler.HandleListRequests)
+			r.Post("/requests/{id}/approve", leaveHandler.HandleApproveRequest)
+			r.Post("/requests/{id}/reject", leaveHandler.HandleRejectRequest)
+			r.Get("/balances/{employeeID}", leaveHandler.HandleGetBalances)
+		})
+
 		// --- Transfer Routes (Provider-Agnostic) ---
 		r.Route("/transfers", func(r chi.Router) {
-			r.Post("/", newTransferHandler.HandleSingleTransfer)
-			r.Post("/batch", newTransferHandler.HandleBatchTransfer)
+			// Velocity limits on transfer creation (10/hour, 50/day per business)
+			r.With(middleware.TransferVelocityLimiter(middleware.TransferVelocityConfig{
+				MaxPerHour: 10,
+				MaxPerDay:  50,
+			})).Post("/", newTransferHandler.HandleSingleTransfer)
+			r.With(middleware.TransferVelocityLimiter(middleware.TransferVelocityConfig{
+				MaxPerHour: 5,
+				MaxPerDay:  20,
+			})).Post("/batch", newTransferHandler.HandleBatchTransfer)
 			r.Get("/", newTransferHandler.HandleListTransfers)
 			r.Get("/{id}", newTransferHandler.HandleGetTransfer)
 			r.Post("/{id}/retry", newTransferHandler.HandleRetryTransfer)
@@ -363,6 +398,10 @@ func NewRouter(
 			r.Get("/balance", walletHandler.HandleGetBalance)
 			r.Get("/transactions", walletHandler.HandleGetTransactions)
 			r.Post("/deposit", walletHandler.HandleInitiateDeposit)
+
+			// Ledger / Double-Entry Accounting
+			r.Get("/ledger", ledgerHandler.HandleGetEntries)
+			r.Get("/reconcile", ledgerHandler.HandleReconcile)
 
 			// Account Holder / KYC Management
 			r.Route("/account-holders", func(r chi.Router) {
@@ -394,6 +433,7 @@ func NewRouter(
 	})
 
 	// --- Platform Admin Routes (super admin only) ---
+	platformSettingsHandler := handler.NewPlatformSettingsHandler(platformSettingsSvc)
 	r.Route("/platform", func(r chi.Router) {
 		r.Use(middleware.AuthMiddleware(cfg.JWTSecret))
 		r.Use(middleware.SuperAdminMiddleware)
@@ -401,6 +441,11 @@ func NewRouter(
 		r.Get("/organizations", platformHandler.ListOrganizations)
 		r.Post("/organizations/{id}/suspend", platformHandler.SuspendOrganization)
 		r.Post("/organizations/{id}/activate", platformHandler.ActivateOrganization)
+
+		// Platform settings (encrypted API keys, SMTP config, etc.)
+		r.Get("/settings", platformSettingsHandler.HandleListSettings)
+		r.Put("/settings/{key}", platformSettingsHandler.HandleSetSetting)
+		r.Delete("/settings/{key}", platformSettingsHandler.HandleDeleteSetting)
 	})
 
 	return r

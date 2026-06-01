@@ -17,6 +17,7 @@ type UserRepository interface {
 	FindBusinessAdmin(ctx context.Context, businessID uint) (*domain.User, error)
 	FindByResetToken(ctx context.Context, token string) (*domain.User, error)
 	FindByInviteToken(ctx context.Context, token string) (*domain.User, error)
+	FindByEmailVerificationToken(ctx context.Context, token string) (*domain.User, error)
 	Update(ctx context.Context, user *domain.User) error
 	Delete(ctx context.Context, id uint) error
 	WithTx(tx Transactioner) UserRepository
@@ -118,6 +119,7 @@ type TransferRepository interface {
 // WalletRepository defines the interface for wallet data operations
 type WalletRepository interface {
 	Create(ctx context.Context, wallet *domain.BusinessWallet) error
+	FindAll(ctx context.Context) ([]*domain.BusinessWallet, error)
 	FindByBusinessID(ctx context.Context, businessID uint) (*domain.BusinessWallet, error)
 	FindByAccountReference(ctx context.Context, accountReference string) (*domain.BusinessWallet, error)
 	Update(ctx context.Context, wallet *domain.BusinessWallet) error
@@ -159,6 +161,15 @@ type InvoiceRepository interface {
 	Create(ctx context.Context, inv *domain.Invoice) error
 	FindByBusinessID(ctx context.Context, businessID uint, page, limit int) ([]*domain.Invoice, int, error)
 	Update(ctx context.Context, inv *domain.Invoice) error
+}
+
+// PlatformSettingRepository defines the interface for platform settings.
+type PlatformSettingRepository interface {
+	Upsert(ctx context.Context, setting *domain.PlatformSetting) error
+	FindByKey(ctx context.Context, key string) (*domain.PlatformSetting, error)
+	FindByCategory(ctx context.Context, category string) ([]*domain.PlatformSetting, error)
+	FindAll(ctx context.Context) ([]*domain.PlatformSetting, error)
+	Delete(ctx context.Context, key string) error
 }
 
 // LoanRepository defines the interface for employee loan operations
@@ -203,6 +214,14 @@ type LeaveBalanceRepository interface {
 }
 
 // AuditRepository defines the interface for audit log operations
+// OrgProviderSettingRepository defines the interface for org-level provider key overrides.
+type OrgProviderSettingRepository interface {
+	Upsert(ctx context.Context, setting *domain.OrgProviderSetting) error
+	FindByBusinessAndProvider(ctx context.Context, businessID uint, provider string) ([]*domain.OrgProviderSetting, error)
+	FindByBusinessID(ctx context.Context, businessID uint) ([]*domain.OrgProviderSetting, error)
+	Delete(ctx context.Context, businessID uint, provider, key string) error
+}
+
 type LedgerRepository interface {
 	CreatePair(ctx context.Context, debit, credit *domain.LedgerEntry) error
 	FindByBusinessID(ctx context.Context, businessID uint, page, limit int) ([]*domain.LedgerEntry, int, error)
