@@ -64,6 +64,23 @@ func (c *Client) makeRequest(ctx context.Context, method, endpoint string, body 
 	return bodyBytes, nil
 }
 
+// ResolveBVN verifies a BVN via Paystack.
+// Endpoint: GET /bank/resolve_bvn/{bvn} (costs NGN 10 per call)
+func (c *Client) ResolveBVN(ctx context.Context, bvn string) (*ResolveBVNResponse, error) {
+	endpoint := fmt.Sprintf("/bank/resolve_bvn/%s", bvn)
+	bodyBytes, err := c.makeRequest(ctx, "GET", endpoint, nil)
+	if err != nil {
+		return nil, fmt.Errorf("paystack BVN resolve failed: %w", err)
+	}
+
+	var response ResolveBVNResponse
+	if err := json.Unmarshal(bodyBytes, &response); err != nil {
+		return nil, fmt.Errorf("failed to decode paystack BVN response: %w", err)
+	}
+
+	return &response, nil
+}
+
 // CreateTransferRecipient creates a transfer recipient.
 // Endpoint: POST /transferrecipient
 func (c *Client) CreateTransferRecipient(ctx context.Context, req CreateRecipientRequest) (*CreateRecipientResponse, error) {

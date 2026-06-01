@@ -125,6 +125,18 @@ func (r *walletRepository) Create(ctx context.Context, wallet *domain.BusinessWa
 	return nil
 }
 
+func (r *walletRepository) FindAll(ctx context.Context) ([]*domain.BusinessWallet, error) {
+	var models []WalletModel
+	if err := r.db.WithContext(ctx).Find(&models).Error; err != nil {
+		return nil, err
+	}
+	wallets := make([]*domain.BusinessWallet, len(models))
+	for i := range models {
+		wallets[i] = models[i].ToDomain()
+	}
+	return wallets, nil
+}
+
 func (r *walletRepository) FindByBusinessID(ctx context.Context, businessID uint) (*domain.BusinessWallet, error) {
 	var model WalletModel
 	if err := r.db.WithContext(ctx).Where("business_id = ?", businessID).First(&model).Error; err != nil {

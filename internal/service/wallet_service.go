@@ -48,10 +48,11 @@ type WalletService interface {
 
 // walletService implements WalletService
 type walletService struct {
-	walletRepo          repository.WalletRepository
-	walletTxRepo        repository.WalletTransactionRepository
+	walletRepo             repository.WalletRepository
+	walletTxRepo           repository.WalletTransactionRepository
 	virtualAccountProvider provider.VirtualAccountProvider
 	virtualAccountBalancer provider.VirtualAccountBalancer
+	ledgerSvc              LedgerService
 }
 
 // NewWalletService creates a new wallet service
@@ -67,11 +68,16 @@ func NewWalletService(
 	}
 
 	return &walletService{
-		walletRepo:          walletRepo,
-		walletTxRepo:        walletTxRepo,
+		walletRepo:             walletRepo,
+		walletTxRepo:           walletTxRepo,
 		virtualAccountProvider: virtualAccountProvider,
 		virtualAccountBalancer: balancer,
 	}
+}
+
+// SetLedgerService injects the ledger service (breaks circular init dependency).
+func (s *walletService) SetLedgerService(ls LedgerService) {
+	s.ledgerSvc = ls
 }
 
 // CreateVirtualAccount creates a virtual account for a business
@@ -233,6 +239,13 @@ func (s *walletService) RecordDeposit(ctx context.Context, businessID uint, noti
 		}
 	}
 
+	// Record double-entry ledger (non-blocking — log errors but don't fail the deposit)
+	if s.ledgerSvc != nil {
+		if err := s.ledgerSvc.RecordDeposit(ctx, businessID, notification.Amount, notification.Reference, notification.Description); err != nil {
+			log.Error().Err(err).Uint("business_id", businessID).Str("reference", notification.Reference).Msg("Failed to record deposit in ledger")
+		}
+	}
+
 	return nil
 }
 
@@ -285,6 +298,19 @@ func (s *walletService) RecordWithdrawal(ctx context.Context, businessID uint, t
 		// Rollback atomically (best effort)
 		s.walletRepo.IncrementBalance(ctx, businessID, totalDebit)
 		return fmt.Errorf("failed to record withdrawal transaction: %w", err)
+	}
+
+	// Record double-entry ledger (non-blocking)
+	if s.ledgerSvc != nil {
+		if err := s.ledgerSvc.RecordWithdrawal(ctx, businessID, amount, reference, fmt.Sprintf("Transfer withdrawal: %s", reference)); err != nil {
+			log.Error().Err(err).Uint("business_id", businessID).Str("reference", reference).Msg("Failed to record withdrawal in ledger")
+		}
+		// Record fee as separate ledger entry (debit wallet, credit revenue)
+		if fee > 0 {
+			if err := s.ledgerSvc.RecordFee(ctx, businessID, fee, reference+"-fee", fmt.Sprintf("Transfer fee: %s", reference)); err != nil {
+				log.Error().Err(err).Uint("business_id", businessID).Msg("Failed to record fee in ledger")
+			}
+		}
 	}
 
 	return nil

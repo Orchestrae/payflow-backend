@@ -92,6 +92,15 @@ func (r *userRepository) FindByInviteToken(ctx context.Context, token string) (*
 	return dbUser.ToDomain(), nil
 }
 
+func (r *userRepository) FindByEmailVerificationToken(ctx context.Context, token string) (*domain.User, error) {
+	var dbUser User
+	err := r.db.WithContext(ctx).Where("email_verification_token = ?", token).First(&dbUser).Error
+	if err != nil {
+		return nil, DBErrToDomainErr(err)
+	}
+	return dbUser.ToDomain(), nil
+}
+
 func (r *userRepository) FindApproversByBusinessID(ctx context.Context, businessID uint) ([]domain.User, error) {
 	var dbUsers []User
 	err := r.db.WithContext(ctx).

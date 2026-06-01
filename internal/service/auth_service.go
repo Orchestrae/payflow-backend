@@ -19,6 +19,7 @@ type authService struct {
 	userRepo        repository.UserRepository
 	businessRepo    repository.BusinessRepository
 	cadreRepo       repository.CadreRepository
+	employeeRepo    repository.EmployeeRepository
 	planRepo        repository.SubscriptionPlanRepository
 	subRepo         repository.SubscriptionRepository
 	txer            repository.Transactioner
@@ -76,6 +77,13 @@ func WithSubscriptionRepos(planRepo repository.SubscriptionPlanRepository, subRe
 	return func(s *authService) {
 		s.planRepo = planRepo
 		s.subRepo = subRepo
+	}
+}
+
+// WithEmployeeRepo sets the employee repository for employee self-service login.
+func WithEmployeeRepo(repo repository.EmployeeRepository) AuthServiceOption {
+	return func(s *authService) {
+		s.employeeRepo = repo
 	}
 }
 
@@ -251,6 +259,9 @@ func (s *authService) RegisterBusiness(ctx context.Context, name, email, passwor
 		s.txer.Rollback(tx)
 		return nil, nil, fmt.Errorf("failed to commit registration transaction: %w", err)
 	}
+
+	// Send verification email (non-blocking)
+	go s.SendVerificationEmail(context.Background(), adminUser.ID)
 
 	// Send welcome email (non-blocking)
 	if s.notificationSvc != nil {
@@ -446,5 +457,162 @@ func (s *authService) ResetPassword(ctx context.Context, token string, newPasswo
 
 	log.Info().Uint("user_id", user.ID).Msg("Password reset completed")
 	return nil
+}
+
+// SendVerificationEmail generates a token and sends a verification email.
+func (s *authService) SendVerificationEmail(ctx context.Context, userID uint) error {
+	user, err := s.userRepo.FindByID(ctx, userID)
+	if err != nil {
+		return fmt.Errorf("user not found: %w", err)
+	}
+
+	if user.IsVerified {
+		return nil // Already verified
+	}
+
+	token, err := generateToken()
+	if err != nil {
+		return fmt.Errorf("failed to generate verification token: %w", err)
+	}
+
+	expiry := time.Now().Add(24 * time.Hour)
+	user.EmailVerificationToken = &token
+	user.EmailVerificationExpiry = &expiry
+
+	if err := s.userRepo.Update(ctx, user); err != nil {
+		return fmt.Errorf("failed to save verification token: %w", err)
+	}
+
+	if s.notificationSvc != nil {
+		verifyURL := fmt.Sprintf("%s/verify-email?token=%s", s.appURL, token)
+		subject := "PayFlow - Verify Your Email"
+		body := fmt.Sprintf("Please verify your email address to complete your registration.\n\nVerify your email: %s\n\nThis link expires in 24 hours.", verifyURL)
+		go s.notificationSvc.SendEmail(context.Background(), user.Email, subject, body)
+	}
+
+	log.Info().Uint("user_id", userID).Msg("Verification email sent")
+	return nil
+}
+
+// VerifyEmail verifies a user's email using the verification token.
+func (s *authService) VerifyEmail(ctx context.Context, token string) error {
+	user, err := s.userRepo.FindByEmailVerificationToken(ctx, token)
+	if err != nil {
+		return domain.ErrNotFound
+	}
+
+	if user.EmailVerificationExpiry != nil && user.EmailVerificationExpiry.Before(time.Now()) {
+		return fmt.Errorf("%w: verification link has expired", domain.ErrValidationFailed)
+	}
+
+	user.IsVerified = true
+	user.EmailVerificationToken = nil
+	user.EmailVerificationExpiry = nil
+
+	if err := s.userRepo.Update(ctx, user); err != nil {
+		return fmt.Errorf("failed to verify email: %w", err)
+	}
+
+	log.Info().Uint("user_id", user.ID).Msg("Email verified successfully")
+	return nil
+}
+
+// CreateEmployeeLogin creates a user account for an employee to enable self-service login.
+func (s *authService) CreateEmployeeLogin(ctx context.Context, businessID, employeeID uint, tempPassword string) (*domain.User, error) {
+	if s.employeeRepo == nil {
+		return nil, fmt.Errorf("employee repository not configured")
+	}
+
+	// Verify the employee exists and belongs to the business
+	employee, err := s.employeeRepo.FindByID(ctx, employeeID, businessID)
+	if err != nil {
+		return nil, domain.ErrNotFound
+	}
+
+	// Check if user already exists for this employee
+	existing, _ := s.userRepo.FindByEmail(ctx, employee.Email)
+	if existing != nil && existing.EmployeeID != nil && *existing.EmployeeID == employeeID {
+		return nil, fmt.Errorf("%w: employee already has a login", domain.ErrConflict)
+	}
+
+	// Hash the temporary password
+	hashedPassword, err := utils.HashPassword(tempPassword)
+	if err != nil {
+		return nil, fmt.Errorf("failed to hash password: %w", err)
+	}
+
+	// Create user with employee role
+	user := &domain.User{
+		BusinessID:   businessID,
+		Email:        employee.Email,
+		PasswordHash: hashedPassword,
+		Role:         domain.RoleEmployee,
+		EmployeeID:   &employeeID,
+		IsVerified:   true, // Admin-created, no verification needed
+	}
+
+	if err := s.userRepo.Create(ctx, user); err != nil {
+		if err == domain.ErrConflict {
+			return nil, fmt.Errorf("%w: email already in use", domain.ErrConflict)
+		}
+		return nil, fmt.Errorf("failed to create employee login: %w", err)
+	}
+
+	// Link user to employee
+	employee.UserID = &user.ID
+	if err := s.employeeRepo.Update(ctx, employee); err != nil {
+		log.Warn().Err(err).Msg("Failed to link user to employee")
+	}
+
+	// Send notification email
+	if s.notificationSvc != nil {
+		loginURL := fmt.Sprintf("%s/employee-login", s.appURL)
+		subject := "Your PayFlow Self-Service Account"
+		body := fmt.Sprintf("Hi %s,\n\nA self-service account has been created for you on PayFlow.\n\n"+
+			"Login URL: %s\nEmail: %s\nTemporary Password: %s\n\n"+
+			"Please change your password after your first login.\n\n"+
+			"Best regards,\nPayFlow", employee.FullName, loginURL, employee.Email, tempPassword)
+		go s.notificationSvc.SendEmail(context.Background(), employee.Email, subject, body)
+	}
+
+	log.Info().Uint("employee_id", employeeID).Uint("user_id", user.ID).Msg("Employee login created")
+	return user, nil
+}
+
+// EmployeeLogin authenticates an employee user and returns a JWT with employee_id claim.
+func (s *authService) EmployeeLogin(ctx context.Context, email, password string) (string, *domain.User, error) {
+	user, err := s.userRepo.FindByEmail(ctx, email)
+	if err != nil {
+		return "", nil, domain.ErrUnauthorized
+	}
+
+	// Must be an employee role
+	if user.Role != domain.RoleEmployee {
+		return "", nil, domain.ErrUnauthorized
+	}
+
+	if !utils.CheckPasswordHash(password, user.PasswordHash) {
+		return "", nil, domain.ErrUnauthorized
+	}
+
+	// Get employee_id
+	employeeID := ""
+	if user.EmployeeID != nil {
+		employeeID = fmt.Sprint(*user.EmployeeID)
+	}
+
+	token, err := utils.GenerateTokenWithEmployee(
+		fmt.Sprint(user.ID),
+		fmt.Sprint(user.BusinessID),
+		string(user.Role),
+		employeeID,
+		s.jwtSecret,
+		s.jwtExpiry,
+	)
+	if err != nil {
+		return "", nil, fmt.Errorf("could not generate token: %w", err)
+	}
+
+	return token, user, nil
 }
 

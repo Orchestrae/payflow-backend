@@ -236,3 +236,98 @@ func TestApplyBrackets_JustAboveTaxFree(t *testing.T) {
 		t.Errorf("expected %d, got %d", expected, tax)
 	}
 }
+
+// === SSNIT Accuracy Verification Tests (9.4) ===
+
+func TestSSNITAccuracy_StandardRates(t *testing.T) {
+	// GHS 3,000/month, pension enabled
+	// SSNIT (Tier 1): 5.5% of basic = 3,000 * 5.5% = 165
+	// Tier 2: 5% of basic = 3,000 * 5% = 150
+	// Employer SSNIT: 13% of basic = 3,000 * 13% = 390
+	result := Calculate(Input{
+		BasicPay:       ghs(3000),
+		GrossPay:       ghs(3000),
+		PensionEnabled: true,
+	})
+	expectedEmpSSNIT := ghs(165)   // 5.5%
+	expectedTier2 := ghs(150)      // 5%
+	expectedEmployer := ghs(390)   // 13%
+
+	if result.EmployeePension != expectedEmpSSNIT {
+		t.Errorf("SSNIT employee: expected %d, got %d", expectedEmpSSNIT, result.EmployeePension)
+	}
+	if result.Tier2Pension != expectedTier2 {
+		t.Errorf("Tier 2: expected %d, got %d", expectedTier2, result.Tier2Pension)
+	}
+	if result.EmployerPension != expectedEmployer {
+		t.Errorf("SSNIT employer: expected %d, got %d", expectedEmployer, result.EmployerPension)
+	}
+}
+
+func TestSSNITAccuracy_CapEnforced(t *testing.T) {
+	// GHS 80,000/month — exceeds SSNIT cap of GHS 69,000
+	// Should use capped value of 69,000 for SSNIT calculations
+	result := Calculate(Input{
+		BasicPay:       ghs(80000),
+		GrossPay:       ghs(80000),
+		PensionEnabled: true,
+	})
+	cappedBase := ghs(69000)
+	expectedEmpSSNIT := cappedBase * 55 / 1000  // 5.5%
+	expectedTier2 := cappedBase * 5 / 100       // 5%
+	expectedEmployer := cappedBase * 13 / 100   // 13%
+
+	if result.EmployeePension != expectedEmpSSNIT {
+		t.Errorf("capped SSNIT employee: expected %d, got %d", expectedEmpSSNIT, result.EmployeePension)
+	}
+	if result.Tier2Pension != expectedTier2 {
+		t.Errorf("capped Tier 2: expected %d, got %d", expectedTier2, result.Tier2Pension)
+	}
+	if result.EmployerPension != expectedEmployer {
+		t.Errorf("capped employer: expected %d, got %d", expectedEmployer, result.EmployerPension)
+	}
+}
+
+func TestGhanaPAYEAccuracy_3kSalary(t *testing.T) {
+	// GHS 3,000/month, SSNIT employee = 5.5% = 165 GHS
+	// Monthly taxable = 3,000 - 165 = 2,835 GHS
+	// Annual taxable = 34,020 GHS = 3,402,000 pesewas
+	// Band 1: 588,000 at 0% = 0
+	// Band 2: 132,000 at 5% = 6,600
+	// Band 3: 156,000 at 10% = 15,600
+	// Band 4: 2,526,000 at 17.5% = 442,050
+	// Annual = 464,250 → Monthly = 38,687 pesewas
+	result := Calculate(Input{
+		BasicPay:       ghs(3000),
+		GrossPay:       ghs(3000),
+		PensionEnabled: true,
+		PAYEEnabled:    true,
+	})
+	expectedMonthly := int64(38687)
+	tolerance := int64(50) // 0.50 GHS tolerance for rounding
+	diff := result.PAYE - expectedMonthly
+	if diff < 0 { diff = -diff }
+	if diff > tolerance {
+		t.Errorf("3k Ghana salary PAYE: expected ~%d, got %d (diff: %d pesewas)", expectedMonthly, result.PAYE, diff)
+	}
+}
+
+func TestGhanaPAYEAccuracy_10kNoPension(t *testing.T) {
+	// GHS 10,000/month = 120,000/year, no pension
+	// Band 1: 5,880 at 0% = 0
+	// Band 2: 1,320 at 5% = 66
+	// Band 3: 1,560 at 10% = 156
+	// Band 4: 38,000 at 17.5% = 6,650
+	// Band 5: 73,240 at 25% = 18,310
+	// Annual = 25,182 GHS = 2,518,200 pesewas
+	// Monthly = 209,850 pesewas
+	result := Calculate(Input{
+		BasicPay:    ghs(10000),
+		GrossPay:    ghs(10000),
+		PAYEEnabled: true,
+	})
+	expectedMonthly := int64(209850)
+	if result.PAYE != expectedMonthly {
+		t.Errorf("10k Ghana no pension PAYE: expected %d, got %d (diff: %d)", expectedMonthly, result.PAYE, result.PAYE-expectedMonthly)
+	}
+}

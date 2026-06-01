@@ -37,6 +37,30 @@ func (h *EmployeeHandler) CreateEmployee(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	if err := h.validate.Struct(req); err != nil {
+		if validationErrors, ok := err.(validator.ValidationErrors); ok {
+			details := make(map[string]string)
+			for _, fe := range validationErrors {
+				switch fe.Field() {
+				case "CadreID":
+					details["cadre_id"] = "cadre_id is required"
+				case "FullName":
+					details["full_name"] = "full_name is required"
+				case "Email":
+					details["email"] = "a valid email address is required"
+				case "BankName":
+					details["bank_name"] = "bank_name is required"
+				case "BankAccountNumber":
+					details["bank_account_number"] = "bank_account_number is required"
+				default:
+					details[fe.Field()] = fmt.Sprintf("%s is %s", fe.Field(), fe.Tag())
+				}
+			}
+			response.RespondWithJSON(w, http.StatusBadRequest, response.ErrorResponse{
+				Error:   "Validation failed",
+				Details: details,
+			})
+			return
+		}
 		response.RespondWithError(w, domain.ErrValidationFailed)
 		return
 	}

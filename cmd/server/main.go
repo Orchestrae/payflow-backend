@@ -142,7 +142,8 @@ func main() {
 	authSvc := service.NewAuthService(userRepo, businessRepo, txer, cfg.JWTSecret, cfg.JWTExpirationDuration, vfdSvc,
 		service.WithNotificationService(notificationSvc, cfg.AppURL),
 		service.WithCadreRepo(cadreRepo),
-		service.WithSubscriptionRepos(planRepo, subRepo))
+		service.WithSubscriptionRepos(planRepo, subRepo),
+		service.WithEmployeeRepo(employeeRepo))
 	// Account verification (uses Paystack if configured) — needed early for employee bank resolve
 	var verificationPaystackClient *paystack.Client
 	if cfg.PaystackSecretKey != "" {

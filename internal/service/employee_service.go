@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"payflow/internal/domain"
 	"payflow/internal/repository"
+	"payflow/pkg/utils"
 
 	"github.com/rs/zerolog/log"
 )
@@ -21,15 +22,30 @@ type EmployeeService interface {
 
 // employeeService is the concrete implementation of the EmployeeService.
 type employeeService struct {
-	employeeRepo repository.EmployeeRepository
-	cadreRepo    repository.CadreRepository
+	employeeRepo    repository.EmployeeRepository
+	cadreRepo       repository.CadreRepository
+	verificationSvc AccountVerificationService
 }
 
 // NewEmployeeService creates a new instance of the employee service.
-func NewEmployeeService(empRepo repository.EmployeeRepository, cadreRepo repository.CadreRepository) EmployeeService {
-	return &employeeService{
+func NewEmployeeService(empRepo repository.EmployeeRepository, cadreRepo repository.CadreRepository, opts ...EmployeeServiceOption) EmployeeService {
+	svc := &employeeService{
 		employeeRepo: empRepo,
 		cadreRepo:    cadreRepo,
+	}
+	for _, opt := range opts {
+		opt(svc)
+	}
+	return svc
+}
+
+// EmployeeServiceOption configures optional employee service dependencies.
+type EmployeeServiceOption func(*employeeService)
+
+// WithVerificationService sets the bank account verification service.
+func WithVerificationService(vs AccountVerificationService) EmployeeServiceOption {
+	return func(s *employeeService) {
+		s.verificationSvc = vs
 	}
 }
 
@@ -63,6 +79,27 @@ func (s *employeeService) CreateEmployee(ctx context.Context, emp *domain.Employ
 		if e.Email == emp.Email {
 			log.Ctx(ctx).Warn().Str("email", emp.Email).Uint("businessID", emp.BusinessID).Msg("Attempt to create employee with duplicate email")
 			return nil, fmt.Errorf("%w: email %s already exists for this business", domain.ErrValidationFailed, emp.Email)
+		}
+	}
+
+	// Auto-verify bank account if verification service is available and bank details provided
+	if s.verificationSvc != nil && emp.BankCode != "" && emp.BankAccountNumber != "" {
+		result, err := s.verificationSvc.VerifyBankAccount(ctx, emp.BankCode, emp.BankAccountNumber)
+		if err != nil {
+			log.Warn().Err(err).Str("account", emp.BankAccountNumber).Msg("Bank verification unavailable — proceeding without verification")
+		} else if result.Verified {
+			emp.BankAccountVerified = true
+			emp.BankAccountName = result.AccountName
+			// Check name match
+			if !utils.NamesMatch(emp.FullName, result.AccountName) {
+				log.Warn().
+					Str("provided", emp.FullName).
+					Str("resolved", result.AccountName).
+					Float64("score", utils.NameMatchScore(emp.FullName, result.AccountName)).
+					Msg("Bank account name mismatch — account verified but name differs")
+			}
+		} else {
+			log.Warn().Str("account", emp.BankAccountNumber).Str("bank", emp.BankCode).Msg("Bank account could not be verified")
 		}
 	}
 
@@ -131,8 +168,32 @@ func (s *employeeService) UpdateEmployee(ctx context.Context, emp *domain.Employ
 		}
 	}
 
-	// 3. Update the record in the database.
-	// Assuming Update handles field replacement.
+	// 3. Re-verify bank account if bank details changed.
+	bankChanged := emp.BankCode != existingEmp.BankCode || emp.BankAccountNumber != existingEmp.BankAccountNumber
+	if bankChanged && emp.BankCode != "" && emp.BankAccountNumber != "" {
+		emp.BankAccountVerified = false
+		emp.BankAccountName = ""
+		if s.verificationSvc != nil {
+			result, err := s.verificationSvc.VerifyBankAccount(ctx, emp.BankCode, emp.BankAccountNumber)
+			if err != nil {
+				log.Warn().Err(err).Str("account", emp.BankAccountNumber).Msg("Bank verification unavailable on update — proceeding without verification")
+			} else if result.Verified {
+				emp.BankAccountVerified = true
+				emp.BankAccountName = result.AccountName
+				if !utils.NamesMatch(emp.FullName, result.AccountName) {
+					log.Warn().
+						Str("provided", emp.FullName).
+						Str("resolved", result.AccountName).
+						Float64("score", utils.NameMatchScore(emp.FullName, result.AccountName)).
+						Msg("Bank account name mismatch on update — account verified but name differs")
+				}
+			} else {
+				log.Warn().Str("account", emp.BankAccountNumber).Str("bank", emp.BankCode).Msg("Bank account could not be verified on update")
+			}
+		}
+	}
+
+	// 4. Update the record in the database.
 	if err := s.employeeRepo.Update(ctx, emp); err != nil {
 		return nil, err
 	}

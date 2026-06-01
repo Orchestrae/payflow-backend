@@ -56,6 +56,19 @@ func (s *leaveService) ListLeaveTypes(ctx context.Context, businessID uint) ([]*
 }
 
 func (s *leaveService) SubmitRequest(ctx context.Context, req *domain.LeaveRequest) (*domain.LeaveRequest, error) {
+	// Validate dates
+	if req.EndDate.Before(req.StartDate) {
+		return nil, fmt.Errorf("%w: end date must be after start date", domain.ErrValidationFailed)
+	}
+
+	// Auto-calculate business days if not provided
+	if req.Days <= 0 {
+		req.Days = countBusinessDays(req.StartDate, req.EndDate)
+	}
+	if req.Days <= 0 {
+		return nil, fmt.Errorf("%w: leave must be at least 1 business day", domain.ErrValidationFailed)
+	}
+
 	// Check balance
 	year := req.StartDate.Year()
 	balance, err := s.leaveBalanceRepo.FindByEmployeeAndType(ctx, req.EmployeeID, req.LeaveTypeID, year)
@@ -106,22 +119,27 @@ func (s *leaveService) ApproveRequest(ctx context.Context, requestID, approverID
 		return fmt.Errorf("%w: can only approve pending requests", domain.ErrValidationFailed)
 	}
 
+	// Re-check balance at approval time (may have changed since request)
+	year := req.StartDate.Year()
+	balance, err := s.leaveBalanceRepo.FindByEmployeeAndType(ctx, req.EmployeeID, req.LeaveTypeID, year)
+	if err != nil {
+		return fmt.Errorf("leave balance not found: %w", err)
+	}
+	if balance.Remaining < req.Days {
+		return fmt.Errorf("%w: insufficient leave balance at approval time (remaining: %d, requested: %d)",
+			domain.ErrValidationFailed, balance.Remaining, req.Days)
+	}
+
 	req.Status = "approved"
 	req.ApprovedByID = &approverID
 	if err := s.leaveRequestRepo.Update(ctx, req); err != nil {
 		return err
 	}
 
-	// Update balance
-	year := req.StartDate.Year()
-	balance, err := s.leaveBalanceRepo.FindByEmployeeAndType(ctx, req.EmployeeID, req.LeaveTypeID, year)
-	if err == nil {
-		balance.Used += req.Days
-		balance.Remaining = balance.Entitled - balance.Used
-		s.leaveBalanceRepo.Update(ctx, balance)
-	}
-
-	return nil
+	// Deduct balance
+	balance.Used += req.Days
+	balance.Remaining = balance.Entitled - balance.Used
+	return s.leaveBalanceRepo.Update(ctx, balance)
 }
 
 func (s *leaveService) RejectRequest(ctx context.Context, requestID, approverID uint, reason string) error {
@@ -144,4 +162,15 @@ func (s *leaveService) GetBalance(ctx context.Context, employeeID uint, year int
 		year = time.Now().Year()
 	}
 	return s.leaveBalanceRepo.FindByEmployee(ctx, employeeID, year)
+}
+
+// countBusinessDays counts weekdays between two dates (inclusive).
+func countBusinessDays(start, end time.Time) int {
+	days := 0
+	for d := start; !d.After(end); d = d.AddDate(0, 0, 1) {
+		if d.Weekday() != time.Saturday && d.Weekday() != time.Sunday {
+			days++
+		}
+	}
+	return days
 }

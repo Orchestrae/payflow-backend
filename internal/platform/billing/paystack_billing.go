@@ -58,13 +58,16 @@ func (c *PaystackBillingClient) makeRequest(ctx context.Context, method, endpoin
 
 // InitializeTransaction starts a payment for a subscription.
 // Returns the authorization URL to redirect the customer to.
-func (c *PaystackBillingClient) InitializeTransaction(ctx context.Context, email string, amount int64, reference, planCode, callbackURL string) (string, error) {
+func (c *PaystackBillingClient) InitializeTransaction(ctx context.Context, email string, amount int64, reference, planCode, callbackURL string, metadata ...map[string]interface{}) (string, error) {
 	reqBody := map[string]interface{}{
 		"email":        email,
 		"amount":       amount,
 		"reference":    reference,
 		"plan":         planCode,
 		"callback_url": callbackURL,
+	}
+	if len(metadata) > 0 && metadata[0] != nil {
+		reqBody["metadata"] = metadata[0]
 	}
 
 	respBytes, err := c.makeRequest(ctx, "POST", "/transaction/initialize", reqBody)

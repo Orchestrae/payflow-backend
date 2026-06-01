@@ -297,3 +297,65 @@ func (h *PayrollHandler) GetPayrollRunByID(w http.ResponseWriter, r *http.Reques
 
 	response.RespondWithJSON(w, http.StatusOK, run)
 }
+
+// AmendPayrollRun handles PUT /payroll-runs/{runID}/amend
+func (h *PayrollHandler) AmendPayrollRun(w http.ResponseWriter, r *http.Request) {
+	runID, err := strconv.ParseUint(chi.URLParam(r, "runID"), 10, 32)
+	if err != nil {
+		response.RespondWithError(w, domain.ErrValidationFailed)
+		return
+	}
+
+	claims, ok := middleware.GetClaimsFromContext(r.Context())
+	if !ok {
+		response.RespondWithError(w, domain.ErrInternalServer)
+		return
+	}
+
+	var req struct {
+		Adjustments map[uint][]service.EmployeeAdjustment `json:"adjustments"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		response.RespondWithError(w, domain.ErrValidationFailed)
+		return
+	}
+
+	run, err := h.payrollService.AmendPayrollRun(r.Context(), uint(runID), claims.BusinessID, req.Adjustments)
+	if err != nil {
+		response.RespondWithError(w, err)
+		return
+	}
+
+	response.RespondWithJSON(w, http.StatusOK, run)
+}
+
+// ReversePayrollRun handles POST /payroll-runs/{runID}/reverse
+func (h *PayrollHandler) ReversePayrollRun(w http.ResponseWriter, r *http.Request) {
+	runID, err := strconv.ParseUint(chi.URLParam(r, "runID"), 10, 32)
+	if err != nil {
+		response.RespondWithError(w, domain.ErrValidationFailed)
+		return
+	}
+
+	claims, ok := middleware.GetClaimsFromContext(r.Context())
+	if !ok {
+		response.RespondWithError(w, domain.ErrInternalServer)
+		return
+	}
+
+	var req struct {
+		Reason string `json:"reason"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		response.RespondWithError(w, domain.ErrValidationFailed)
+		return
+	}
+
+	run, err := h.payrollService.ReversePayrollRun(r.Context(), uint(runID), claims.UserID, req.Reason)
+	if err != nil {
+		response.RespondWithError(w, err)
+		return
+	}
+
+	response.RespondWithJSON(w, http.StatusOK, run)
+}

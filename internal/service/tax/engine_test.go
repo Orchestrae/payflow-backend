@@ -290,3 +290,131 @@ func TestApplyBrackets_ExactBoundaries(t *testing.T) {
 		})
 	}
 }
+
+// === PAYE Accuracy Verification Tests (9.3) ===
+// These verify against manually-computed PAYE using Nigeria Tax Act 2025 brackets.
+
+func TestPAYEAccuracy_150kSalary(t *testing.T) {
+	// NGN 150,000/month = 1,800,000/year
+	// Pension base = 150,000 (basic only assumed)
+	// No pension → taxable = 1,800,000
+	// Bracket 1: 800,000 at 0% = 0
+	// Bracket 2: 1,000,000 at 15% = 150,000
+	// Annual PAYE = 150,000 → Monthly = 12,500
+	result := Calculate(Input{
+		BasicPay:    ngn(150000),
+		GrossPay:    ngn(150000),
+		PAYEEnabled: true,
+	})
+	expected := ngn(12500)
+	if result.PAYE != expected {
+		t.Errorf("150k salary: expected PAYE %d, got %d (diff: %d kobo)", expected, result.PAYE, result.PAYE-expected)
+	}
+}
+
+func TestPAYEAccuracy_500kSalary(t *testing.T) {
+	// NGN 500,000/month = 6,000,000/year
+	// Bracket 1: 800,000 at 0% = 0
+	// Bracket 2: 2,200,000 at 15% = 330,000
+	// Bracket 3: 3,000,000 at 18% = 540,000
+	// Annual = 870,000 → Monthly = 72,500
+	result := Calculate(Input{
+		BasicPay:    ngn(300000),
+		OtherPay:    ngn(200000),
+		GrossPay:    ngn(500000),
+		PAYEEnabled: true,
+	})
+	expected := ngn(72500)
+	if result.PAYE != expected {
+		t.Errorf("500k salary: expected PAYE %d, got %d (diff: %d kobo)", expected, result.PAYE, result.PAYE-expected)
+	}
+}
+
+func TestPAYEAccuracy_1mSalary(t *testing.T) {
+	// NGN 1,000,000/month = 12,000,000/year
+	// Bracket 1: 800,000 at 0% = 0
+	// Bracket 2: 2,200,000 at 15% = 330,000
+	// Bracket 3: 9,000,000 at 18% = 1,620,000
+	// Annual = 1,950,000 → Monthly = 162,500
+	result := Calculate(Input{
+		BasicPay:    ngn(600000),
+		OtherPay:    ngn(400000),
+		GrossPay:    ngn(1000000),
+		PAYEEnabled: true,
+	})
+	expected := ngn(162500)
+	if result.PAYE != expected {
+		t.Errorf("1M salary: expected PAYE %d, got %d (diff: %d kobo)", expected, result.PAYE, result.PAYE-expected)
+	}
+}
+
+func TestPAYEAccuracy_WithPensionDeduction(t *testing.T) {
+	// NGN 300,000/month, pension enabled
+	// Pension base = 200,000 + 50,000 + 30,000 = 280,000 (basic+housing+transport)
+	// Employee pension = 280,000 * 8% = 22,400/month = 268,800/year
+	// Gross annual = 3,600,000
+	// Taxable = 3,600,000 - 268,800 = 3,331,200
+	// Bracket 1: 800,000 at 0% = 0
+	// Bracket 2: 2,200,000 at 15% = 330,000
+	// Bracket 3: 331,200 at 18% = 59,616
+	// Annual PAYE = 389,616 → Monthly = 32,468
+	result := Calculate(Input{
+		BasicPay:       ngn(200000),
+		HousingPay:     ngn(50000),
+		TransportPay:   ngn(30000),
+		OtherPay:       ngn(20000),
+		GrossPay:       ngn(300000),
+		PensionEnabled: true,
+		PAYEEnabled:    true,
+	})
+	expected := ngn(32468)
+	if result.PAYE != expected {
+		t.Errorf("300k with pension: expected PAYE %d, got %d (diff: %d kobo)", expected, result.PAYE, result.PAYE-expected)
+	}
+}
+
+func TestPensionAccuracy_StandardRate(t *testing.T) {
+	// Employee 8%, Employer 10% on pension base
+	// Pension base = basic + housing + transport = 280,000
+	result := Calculate(Input{
+		BasicPay:       ngn(200000),
+		HousingPay:     ngn(50000),
+		TransportPay:   ngn(30000),
+		GrossPay:       ngn(300000),
+		PensionEnabled: true,
+	})
+	expectedEmployee := ngn(22400)  // 280,000 * 8%
+	expectedEmployer := ngn(28000)  // 280,000 * 10%
+	if result.EmployeePension != expectedEmployee {
+		t.Errorf("employee pension: expected %d, got %d", expectedEmployee, result.EmployeePension)
+	}
+	if result.EmployerPension != expectedEmployer {
+		t.Errorf("employer pension: expected %d, got %d", expectedEmployer, result.EmployerPension)
+	}
+}
+
+func TestNHFAccuracy_TwoPointFivePercent(t *testing.T) {
+	// NHF = 2.5% of basic pay
+	result := Calculate(Input{
+		BasicPay:   ngn(200000),
+		GrossPay:   ngn(300000),
+		NHFEnabled: true,
+	})
+	expected := ngn(5000) // 200,000 * 2.5%
+	if result.NHF != expected {
+		t.Errorf("NHF: expected %d, got %d", expected, result.NHF)
+	}
+}
+
+func TestNSITFAccuracy_OnePercent(t *testing.T) {
+	// NSITF = 1% of gross (employer-only)
+	result := Calculate(Input{
+		BasicPay:     ngn(200000),
+		GrossPay:     ngn(300000),
+		NSITFEnabled: true,
+	})
+	expected := ngn(3000) // 300,000 * 1%
+	if result.NSITF != expected {
+		t.Errorf("NSITF: expected %d, got %d", expected, result.NSITF)
+	}
+}

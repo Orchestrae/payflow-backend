@@ -46,8 +46,10 @@ type User struct {
 	IsVerified       bool
 	ResetToken       *string    `gorm:"size:100;index"`
 	ResetTokenExpiry *time.Time
-	InviteToken      *string    `gorm:"size:100;index"`
-	InviteAccepted   bool       `gorm:"default:false"`
+	InviteToken              *string    `gorm:"size:100;index"`
+	InviteAccepted           bool       `gorm:"default:false"`
+	EmailVerificationToken   *string    `gorm:"size:100;index"`
+	EmailVerificationExpiry  *time.Time
 }
 
 // ToDomain converts a postgres.User model to a domain.User model.
@@ -59,15 +61,17 @@ func (u *User) ToDomain() *domain.User {
 			UpdatedAt: u.Model.UpdatedAt,
 			DeletedAt: u.Model.DeletedAt,
 		},
-		BusinessID:   u.BusinessID,
-		Email:        u.Email,
-		PasswordHash: u.PasswordHash,
-		Role:             u.Role,
-		IsVerified:       u.IsVerified,
-		ResetToken:       u.ResetToken,
-		ResetTokenExpiry: u.ResetTokenExpiry,
-		InviteToken:      u.InviteToken,
-		InviteAccepted:   u.InviteAccepted,
+		BusinessID:              u.BusinessID,
+		Email:                   u.Email,
+		PasswordHash:            u.PasswordHash,
+		Role:                    u.Role,
+		IsVerified:              u.IsVerified,
+		ResetToken:              u.ResetToken,
+		ResetTokenExpiry:        u.ResetTokenExpiry,
+		InviteToken:             u.InviteToken,
+		InviteAccepted:          u.InviteAccepted,
+		EmailVerificationToken:  u.EmailVerificationToken,
+		EmailVerificationExpiry: u.EmailVerificationExpiry,
 	}
 }
 
@@ -79,15 +83,17 @@ func UserFromDomain(u *domain.User) *User {
 			UpdatedAt: u.Model.UpdatedAt,
 			DeletedAt: u.Model.DeletedAt,
 		},
-		BusinessID:       u.BusinessID,
-		Email:            u.Email,
-		PasswordHash:     u.PasswordHash,
-		Role:             u.Role,
-		IsVerified:       u.IsVerified,
-		ResetToken:       u.ResetToken,
-		ResetTokenExpiry: u.ResetTokenExpiry,
-		InviteToken:      u.InviteToken,
-		InviteAccepted:   u.InviteAccepted,
+		BusinessID:              u.BusinessID,
+		Email:                   u.Email,
+		PasswordHash:            u.PasswordHash,
+		Role:                    u.Role,
+		IsVerified:              u.IsVerified,
+		ResetToken:              u.ResetToken,
+		ResetTokenExpiry:        u.ResetTokenExpiry,
+		InviteToken:             u.InviteToken,
+		InviteAccepted:          u.InviteAccepted,
+		EmailVerificationToken:  u.EmailVerificationToken,
+		EmailVerificationExpiry: u.EmailVerificationExpiry,
 	}
 }
 
@@ -305,12 +311,16 @@ type Employee struct {
 	BankName          string
 	BankCode          string `gorm:"size:10"`
 	BankAccountNumber string
-	PhoneNumber       string  `gorm:"size:20"`
-	IsActive          bool    `gorm:"default:true"`
-	TIN               *string `gorm:"size:20"`
+	PhoneNumber         string  `gorm:"size:20"`
+	IsActive            bool    `gorm:"default:true"`
+	BankAccountVerified bool    `gorm:"default:false"`
+	BankAccountName     string  `gorm:"size:255"`
+	TIN                 *string `gorm:"size:20"`
 	PensionRSAPIN     *string `gorm:"size:30"`
 	NHFNumber         *string `gorm:"size:30"`
 	AnnualRentPaid    int64   `gorm:"default:0"`
+	UserID            *uint   `gorm:"index"`
+	StartDate         *time.Time
 	Cadre             Cadre   `gorm:"foreignKey:CadreID"`
 }
 
@@ -329,14 +339,18 @@ func (e *Employee) ToDomain() *domain.Employee {
 		Email:             e.Email,
 		BankName:          e.BankName,
 		BankCode:          e.BankCode,
-		BankAccountNumber: e.BankAccountNumber,
-		PhoneNumber:       e.PhoneNumber,
-		IsActive:          e.IsActive,
-		TIN:               e.TIN,
-		PensionRSAPIN:     e.PensionRSAPIN,
-		NHFNumber:         e.NHFNumber,
-		AnnualRentPaid:    e.AnnualRentPaid,
-		Cadre:             domCadre,
+		BankAccountNumber:   e.BankAccountNumber,
+		PhoneNumber:         e.PhoneNumber,
+		IsActive:            e.IsActive,
+		BankAccountVerified: e.BankAccountVerified,
+		BankAccountName:     e.BankAccountName,
+		TIN:                 e.TIN,
+		PensionRSAPIN:       e.PensionRSAPIN,
+		NHFNumber:           e.NHFNumber,
+		AnnualRentPaid:      e.AnnualRentPaid,
+		UserID:              e.UserID,
+		StartDate:           e.StartDate,
+		Cadre:               domCadre,
 	}
 }
 
@@ -354,13 +368,17 @@ func EmployeeFromDomain(e *domain.Employee) *Employee {
 		Email:             e.Email,
 		BankName:          e.BankName,
 		BankCode:          e.BankCode,
-		BankAccountNumber: e.BankAccountNumber,
-		PhoneNumber:       e.PhoneNumber,
-		IsActive:          e.IsActive,
-		TIN:               e.TIN,
-		PensionRSAPIN:     e.PensionRSAPIN,
-		NHFNumber:         e.NHFNumber,
-		AnnualRentPaid:    e.AnnualRentPaid,
+		BankAccountNumber:   e.BankAccountNumber,
+		PhoneNumber:         e.PhoneNumber,
+		IsActive:            e.IsActive,
+		BankAccountVerified: e.BankAccountVerified,
+		BankAccountName:     e.BankAccountName,
+		TIN:                 e.TIN,
+		PensionRSAPIN:       e.PensionRSAPIN,
+		NHFNumber:           e.NHFNumber,
+		AnnualRentPaid:      e.AnnualRentPaid,
+		UserID:              e.UserID,
+		StartDate:           e.StartDate,
 	}
 }
 

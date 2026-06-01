@@ -178,6 +178,7 @@ func NewRouter(
 		r.Use(middleware.RateLimiter(5, 10)) // 5 req/sec per IP for auth
 		r.Post("/register", authHandler.RegisterBusiness)
 		r.Post("/login", authHandler.Login)
+		r.Post("/employee/login", authHandler.EmployeeLogin)
 		r.Post("/accept-invitation", authHandler.AcceptInvitation)
 		r.Post("/forgot-password", authHandler.ForgotPassword)
 		r.Post("/reset-password", authHandler.ResetPassword)
@@ -257,6 +258,7 @@ func NewRouter(
 				r.Get("/{employeeID}", employeeHandler.GetEmployeeByID)
 				r.Put("/{employeeID}", employeeHandler.UpdateEmployee)
 				r.Patch("/{employeeID}/deactivate", employeeHandler.DeactivateEmployee)
+				r.Post("/{employeeID}/create-login", authHandler.CreateEmployeeLogin)
 			})
 
 			// Cadre (Salary Structure) Management

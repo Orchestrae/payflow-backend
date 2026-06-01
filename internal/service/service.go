@@ -41,6 +41,10 @@ type AuthService interface {
 	AcceptInvitation(ctx context.Context, token string, password string) (*domain.User, string, error)
 	RequestPasswordReset(ctx context.Context, email string) error
 	ResetPassword(ctx context.Context, token string, newPassword string) error
+	SendVerificationEmail(ctx context.Context, userID uint) error
+	VerifyEmail(ctx context.Context, token string) error
+	CreateEmployeeLogin(ctx context.Context, businessID, employeeID uint, tempPassword string) (*domain.User, error)
+	EmployeeLogin(ctx context.Context, email, password string) (token string, user *domain.User, err error)
 }
 
 // VFDWebhookService defines the business logic for VFD webhook notifications.
@@ -146,6 +150,12 @@ type PayrollService interface {
 
 	// GetByID retrieves a specific payroll run by ID, ensuring it belongs to the specified business
 	GetByID(ctx context.Context, runID, businessID uint) (*domain.PayrollRun, error)
+
+	// AmendPayrollRun recalculates a draft payroll run with updated data
+	AmendPayrollRun(ctx context.Context, runID, businessID uint, adjustments map[uint][]EmployeeAdjustment) (*domain.PayrollRun, error)
+
+	// ReversePayrollRun marks a completed payroll run as reversed for accounting purposes
+	ReversePayrollRun(ctx context.Context, runID, userID uint, reason string) (*domain.PayrollRun, error)
 }
 
 // We will add more service interfaces for Cadre, Employee management as we go.

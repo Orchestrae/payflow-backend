@@ -20,6 +20,7 @@ type TransferProviderManager struct {
 	defaultProvider   TransferProvider
 	fallbackProviders []TransferProvider
 	allProviders      map[domain.ProviderName]TransferProvider
+	circuitBreakers   *ProviderCircuitBreakers
 }
 
 // NewTransferProviderManager creates a new provider manager.
@@ -39,6 +40,7 @@ func NewTransferProviderManager(
 		defaultProvider:   defaultProvider,
 		fallbackProviders: fallbackProviders,
 		allProviders:      providers,
+		circuitBreakers:   NewProviderCircuitBreakers(DefaultCircuitBreakerConfig()),
 	}, nil
 }
 
@@ -100,8 +102,18 @@ func (m *TransferProviderManager) tryTransfer(ctx context.Context, providers []T
 	return nil, fmt.Errorf("all providers failed: %w", lastErr)
 }
 
-// attemptTransfer tries a single transfer with one provider.
+// attemptTransfer tries a single transfer with one provider, respecting circuit breaker.
 func (m *TransferProviderManager) attemptTransfer(ctx context.Context, provider TransferProvider, req *domain.SingleTransferRequest) (*domain.TransferResult, error) {
+	cb := m.circuitBreakers.Get(provider.Name())
+
+	if !cb.Allow() {
+		slog.Warn("Circuit breaker open, skipping provider",
+			"provider", provider.Name(),
+			"reference", req.Reference,
+		)
+		return nil, fmt.Errorf("%s: %w", provider.Name(), ErrCircuitOpen)
+	}
+
 	slog.Info("Attempting transfer",
 		"provider", provider.Name(),
 		"reference", req.Reference,
@@ -110,6 +122,7 @@ func (m *TransferProviderManager) attemptTransfer(ctx context.Context, provider 
 
 	result, err := provider.InitiateTransfer(ctx, req)
 	if err != nil {
+		cb.RecordFailure()
 		slog.Warn("Transfer failed",
 			"provider", provider.Name(),
 			"reference", req.Reference,
@@ -118,6 +131,7 @@ func (m *TransferProviderManager) attemptTransfer(ctx context.Context, provider 
 		return nil, fmt.Errorf("%s: %w", provider.Name(), err)
 	}
 
+	cb.RecordSuccess()
 	slog.Info("Transfer succeeded",
 		"provider", provider.Name(),
 		"reference", req.Reference,

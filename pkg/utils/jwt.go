@@ -14,16 +14,23 @@ type Claims struct {
 	UserID     string `json:"user_id"`
 	BusinessID string `json:"business_id"`
 	Role       string `json:"role"`
+	EmployeeID string `json:"employee_id,omitempty"` // Set for employee self-service tokens
 	jwt.RegisteredClaims
 }
 
 // GenerateToken creates a new JWT for a given user.
 func GenerateToken(userID, businessID, role, secret string, expiry time.Duration) (string, error) {
+	return GenerateTokenWithEmployee(userID, businessID, role, "", secret, expiry)
+}
+
+// GenerateTokenWithEmployee creates a JWT with optional employee_id claim.
+func GenerateTokenWithEmployee(userID, businessID, role, employeeID, secret string, expiry time.Duration) (string, error) {
 	expirationTime := time.Now().Add(expiry)
 	claims := &Claims{
 		UserID:     userID,
 		BusinessID: businessID,
 		Role:       role,
+		EmployeeID: employeeID,
 		RegisteredClaims: jwt.RegisteredClaims{
 			ExpiresAt: jwt.NewNumericDate(expirationTime),
 			IssuedAt:  jwt.NewNumericDate(time.Now()),

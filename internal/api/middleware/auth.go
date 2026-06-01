@@ -24,6 +24,7 @@ type Claims struct {
 	UserID     uint
 	BusinessID uint
 	Role       domain.UserRole
+	EmployeeID uint // Non-zero for employee self-service tokens
 }
 
 // AuthMiddleware validates the JWT and injects user claims into the request context.
@@ -58,11 +59,17 @@ func AuthMiddleware(jwtSecret string) func(http.Handler) http.Handler {
 			// Parse claims into a structured, typed object for the context.
 			userID, _ := strconv.ParseUint(validatedClaims.UserID, 10, 32)
 			businessID, _ := strconv.ParseUint(validatedClaims.BusinessID, 10, 32)
+			var employeeID uint
+			if validatedClaims.EmployeeID != "" {
+				eid, _ := strconv.ParseUint(validatedClaims.EmployeeID, 10, 32)
+				employeeID = uint(eid)
+			}
 
 			claims := &Claims{
 				UserID:     uint(userID),
 				BusinessID: uint(businessID),
 				Role:       domain.UserRole(validatedClaims.Role),
+				EmployeeID: employeeID,
 			}
 
 			ctx := context.WithValue(r.Context(), UserClaimsKey, claims)

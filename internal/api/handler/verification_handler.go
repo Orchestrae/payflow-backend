@@ -36,3 +36,20 @@ func (h *VerificationHandler) HandleVerifyBankAccount(w http.ResponseWriter, r *
 
 	response.RespondWithJSON(w, http.StatusOK, result)
 }
+
+// HandleVerifyBVN handles POST /v1/verify/bvn
+func (h *VerificationHandler) HandleVerifyBVN(w http.ResponseWriter, r *http.Request) {
+	bvn := r.URL.Query().Get("bvn")
+	if bvn == "" {
+		response.RespondWithError(w, domain.ErrValidationFailed)
+		return
+	}
+
+	result, err := h.verificationService.VerifyBVN(r.Context(), bvn)
+	if err != nil {
+		response.RespondWithError(w, err)
+		return
+	}
+
+	response.RespondWithJSON(w, http.StatusOK, result)
+}

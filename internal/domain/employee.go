@@ -15,6 +15,10 @@ type Employee struct {
 	PhoneNumber       string `gorm:"size:20" json:"phone_number,omitempty"`
 	IsActive          bool   `gorm:"default:true" json:"is_active"`
 
+	// Bank account verification
+	BankAccountVerified bool   `gorm:"default:false" json:"bank_account_verified"`
+	BankAccountName     string `gorm:"size:255" json:"bank_account_name,omitempty"`
+
 	// Statutory fields
 	TIN            *string `gorm:"size:20" json:"tin,omitempty"`
 	PensionRSAPIN  *string `gorm:"size:30" json:"pension_rsa_pin,omitempty"`

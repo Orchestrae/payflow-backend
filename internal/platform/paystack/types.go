@@ -84,6 +84,22 @@ type ResolveAccountData struct {
 	BankID        int    `json:"bank_id"`
 }
 
+// ResolveBVNResponse represents the Paystack BVN resolve response.
+type ResolveBVNResponse struct {
+	Status  bool   `json:"status"`
+	Message string `json:"message"`
+	Data    *BVNData `json:"data"`
+}
+
+// BVNData contains the resolved BVN details.
+type BVNData struct {
+	FirstName   string `json:"first_name"`
+	LastName    string `json:"last_name"`
+	DOB         string `json:"dob"`
+	Phone       string `json:"formatted_dob"`
+	BVN         string `json:"bvn"`
+}
+
 // WebhookPayload represents a Paystack webhook event payload.
 type WebhookPayload struct {
 	Event string                 `json:"event"`

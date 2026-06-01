@@ -5,12 +5,15 @@ import (
 	"encoding/json"
 	"log/slog"
 	"net/http"
+	"strconv"
+
 	"payflow/internal/api/middleware"
 	"payflow/internal/api/request"
 	"payflow/internal/api/response"
 	"payflow/internal/domain"
 	"payflow/internal/service"
 
+	"github.com/go-chi/chi/v5"
 	"github.com/go-playground/validator/v10"
 )
 
@@ -200,4 +203,106 @@ func (h *AuthHandler) ResetPassword(w http.ResponseWriter, r *http.Request) {
 	response.RespondWithJSON(w, http.StatusOK, map[string]string{
 		"message": "Password reset successfully",
 	})
+}
+
+// VerifyEmail handles POST /v1/auth/verify-email
+func (h *AuthHandler) VerifyEmail(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Token string `json:"token" validate:"required"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		response.RespondWithError(w, domain.ErrValidationFailed)
+		return
+	}
+	if req.Token == "" {
+		response.RespondWithError(w, domain.ErrValidationFailed)
+		return
+	}
+
+	if err := h.authService.VerifyEmail(r.Context(), req.Token); err != nil {
+		response.RespondWithError(w, err)
+		return
+	}
+
+	response.RespondWithJSON(w, http.StatusOK, map[string]string{
+		"message": "Email verified successfully",
+	})
+}
+
+// ResendVerification handles POST /v1/auth/resend-verification (authenticated)
+func (h *AuthHandler) ResendVerification(w http.ResponseWriter, r *http.Request) {
+	claims, ok := middleware.GetClaimsFromContext(r.Context())
+	if !ok {
+		response.RespondWithError(w, domain.ErrUnauthorized)
+		return
+	}
+
+	if err := h.authService.SendVerificationEmail(r.Context(), claims.UserID); err != nil {
+		response.RespondWithError(w, err)
+		return
+	}
+
+	response.RespondWithJSON(w, http.StatusOK, map[string]string{
+		"message": "Verification email sent",
+	})
+}
+
+// EmployeeLogin handles POST /v1/auth/employee/login
+func (h *AuthHandler) EmployeeLogin(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Email    string `json:"email"`
+		Password string `json:"password"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		response.RespondWithError(w, domain.ErrValidationFailed)
+		return
+	}
+	if req.Email == "" || req.Password == "" {
+		response.RespondWithError(w, domain.ErrValidationFailed)
+		return
+	}
+
+	token, user, err := h.authService.EmployeeLogin(r.Context(), req.Email, req.Password)
+	if err != nil {
+		response.RespondWithError(w, err)
+		return
+	}
+
+	response.RespondWithJSON(w, http.StatusOK, map[string]interface{}{
+		"token": token,
+		"user":  user,
+	})
+}
+
+// CreateEmployeeLogin handles POST /v1/employees/{employeeID}/create-login
+func (h *AuthHandler) CreateEmployeeLogin(w http.ResponseWriter, r *http.Request) {
+	claims, ok := middleware.GetClaimsFromContext(r.Context())
+	if !ok {
+		response.RespondWithError(w, domain.ErrUnauthorized)
+		return
+	}
+
+	empIDStr := chi.URLParam(r, "employeeID")
+	empIDParsed, err := strconv.ParseUint(empIDStr, 10, 32)
+	if err != nil {
+		response.RespondWithError(w, domain.ErrValidationFailed)
+		return
+	}
+	employeeID := uint(empIDParsed)
+
+	var req struct {
+		TempPassword string `json:"temp_password"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.TempPassword == "" {
+		response.RespondWithError(w, domain.ErrValidationFailed)
+		return
+	}
+
+	user, err := h.authService.CreateEmployeeLogin(r.Context(), claims.BusinessID, employeeID, req.TempPassword)
+	if err != nil {
+		response.RespondWithError(w, err)
+		return
+	}
+
+	response.RespondWithJSON(w, http.StatusCreated, user)
 }

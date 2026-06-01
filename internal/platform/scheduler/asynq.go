@@ -19,12 +19,18 @@ type payrollPayload struct {
 	RunID uint `json:"run_id"`
 }
 
+// EmailTaskHandler can handle email tasks from the queue.
+type EmailTaskHandler interface {
+	HandleEmailTask(ctx context.Context, t *asynq.Task) error
+}
+
 // asynqScheduler implements domain.Scheduler using Asynq (Redis-backed).
 type asynqScheduler struct {
-	client     *asynq.Client
-	server     *asynq.Server
-	payrollSvc domain.PayrollService
-	payoutSvc  domain.PayoutService
+	client       *asynq.Client
+	server       *asynq.Server
+	payrollSvc   domain.PayrollService
+	payoutSvc    domain.PayoutService
+	emailHandler EmailTaskHandler
 }
 
 // NewAsynqScheduler creates a new Asynq-based scheduler.
@@ -38,8 +44,9 @@ func NewAsynqScheduler(redisURL string, payrollSvc domain.PayrollService, payout
 	server := asynq.NewServer(redisOpt, asynq.Config{
 		Concurrency: 10,
 		Queues: map[string]int{
-			"payroll": 6,
-			"default": 4,
+			"payroll": 5,
+			"email":   3,
+			"default": 2,
 		},
 		RetryDelayFunc: func(n int, e error, t *asynq.Task) time.Duration {
 			return time.Duration(n*n) * time.Minute // Exponential backoff
@@ -54,10 +61,19 @@ func NewAsynqScheduler(redisURL string, payrollSvc domain.PayrollService, payout
 	}, nil
 }
 
+// SetEmailHandler registers the email task handler.
+func (s *asynqScheduler) SetEmailHandler(h EmailTaskHandler) {
+	s.emailHandler = h
+}
+
 func (s *asynqScheduler) Start() {
 	log.Info().Msg("Starting Asynq background job processor")
 	mux := asynq.NewServeMux()
 	mux.HandleFunc(TypePayrollProcess, s.handlePayrollProcess)
+	if s.emailHandler != nil {
+		mux.HandleFunc("email:send", s.emailHandler.HandleEmailTask)
+		log.Info().Msg("Email task handler registered with Asynq")
+	}
 
 	go func() {
 		if err := s.server.Start(mux); err != nil {

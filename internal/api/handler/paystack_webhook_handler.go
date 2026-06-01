@@ -120,25 +120,6 @@ func (h *PaystackWebhookHandler) handleChargeSuccess(ctx context.Context, data m
 		currency = "NGN"
 	}
 
-	// Extract account reference from metadata or authorization
-	accountRef := ""
-	if metadata, ok := data["metadata"].(map[string]interface{}); ok {
-		accountRef, _ = metadata["account_reference"].(string)
-	}
-	// Fallback: try dedicated_account data
-	if accountRef == "" {
-		if dedicatedAccount, ok := data["dedicated_account"].(map[string]interface{}); ok {
-			if acct, ok := dedicatedAccount["account_number"].(string); ok {
-				accountRef = acct
-			}
-		}
-	}
-
-	if accountRef == "" {
-		slog.Warn("Paystack charge.success missing account reference", "reference", reference)
-		return
-	}
-
 	now := time.Now()
 	notification := &domain.DepositNotification{
 		Reference:   reference,
@@ -149,10 +130,50 @@ func (h *PaystackWebhookHandler) handleChargeSuccess(ctx context.Context, data m
 		ProcessedAt: now,
 	}
 
+	// Try to extract business_id from metadata (set by HandleInitiateDeposit)
+	var businessID uint
+	if metadata, ok := data["metadata"].(map[string]interface{}); ok {
+		switch v := metadata["business_id"].(type) {
+		case float64:
+			businessID = uint(v)
+		case json.Number:
+			bid, _ := v.Int64()
+			businessID = uint(bid)
+		}
+	}
+
+	if businessID > 0 {
+		// Direct deposit via Paystack checkout — we know the business
+		if err := h.walletSvc.RecordDeposit(ctx, businessID, notification); err != nil {
+			slog.Error("Failed to record Paystack deposit", "reference", reference, "business_id", businessID, "error", err)
+		} else {
+			slog.Info("Paystack deposit recorded", "reference", reference, "amount", amount, "business_id", businessID)
+		}
+		return
+	}
+
+	// Fallback: try account_reference for KoraPay virtual account deposits
+	accountRef := ""
+	if metadata, ok := data["metadata"].(map[string]interface{}); ok {
+		accountRef, _ = metadata["account_reference"].(string)
+	}
+	if accountRef == "" {
+		if dedicatedAccount, ok := data["dedicated_account"].(map[string]interface{}); ok {
+			if acct, ok := dedicatedAccount["account_number"].(string); ok {
+				accountRef = acct
+			}
+		}
+	}
+
+	if accountRef == "" {
+		slog.Warn("Paystack charge.success missing both business_id and account reference", "reference", reference)
+		return
+	}
+
 	if err := h.walletSvc.RecordDepositByAccountReference(ctx, accountRef, notification); err != nil {
-		slog.Error("Failed to record Paystack deposit", "reference", reference, "error", err)
+		slog.Error("Failed to record Paystack deposit by account ref", "reference", reference, "error", err)
 	} else {
-		slog.Info("Paystack deposit recorded", "reference", reference, "amount", amount, "account_ref", accountRef)
+		slog.Info("Paystack deposit recorded via account ref", "reference", reference, "amount", amount, "account_ref", accountRef)
 	}
 }
 
