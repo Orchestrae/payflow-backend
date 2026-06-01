@@ -24,9 +24,6 @@ import (
 	"payflow/pkg/utils"
 )
 
-// testDB holds the shared database connection for integration tests.
-var testDB *gorm.DB
-
 // setupPostgresContainer starts a real Postgres container and returns a GORM DB connected to it.
 func setupPostgresContainer(t *testing.T) (*gorm.DB, func()) {
 	t.Helper()

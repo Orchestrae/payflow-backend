@@ -1,420 +1,239 @@
 # PayFlow Deployment Guide
 
-This document covers Docker local development, Railway production deployment, environment variable reference, and the database migration strategy.
+## Overview
 
-See also:
-- [Architecture](./ARCHITECTURE.md)
-- [API Reference](./API_REFERENCE.md)
+PayFlow is deployed as two services:
+- **Backend:** Go API server on Railway
+- **Frontend:** React SPA on Vercel
 
----
-
-## Table of Contents
-
-1. [Local Development with Docker](#local-development-with-docker)
-2. [Production Dockerfile](#production-dockerfile)
-3. [Railway Deployment](#railway-deployment)
-4. [Environment Variables](#environment-variables)
-5. [Database Migrations](#database-migrations)
-6. [Health Checks](#health-checks)
-7. [Troubleshooting](#troubleshooting)
+Both services connect to a Railway-hosted PostgreSQL database and Redis instance.
 
 ---
 
-## Local Development with Docker
+## Railway Backend Setup
 
-Docker Compose provides a full local stack. Start everything with:
+### 1. Create Railway Project
 
+1. Go to [railway.app](https://railway.app) and create a new project.
+2. Add a **PostgreSQL** service from the Railway marketplace.
+3. Add a **Redis** service from the Railway marketplace.
+4. Add a new service from your GitHub repo (the Go backend).
+
+### 2. Build Configuration
+
+| Setting | Value |
+|---------|-------|
+| Root Directory | `/` (project root) |
+| Build Command | `go build -o bin/payflow ./cmd/server/main.go` |
+| Start Command | `./bin/payflow` |
+| Health Check Path | `/health` |
+| Health Check Timeout | `30s` |
+
+Railway auto-detects Go projects. The `Dockerfile` is not required -- Railway uses Nixpacks.
+
+### 3. Environment Variables
+
+Set these in the Railway service settings. See [OPERATOR_ACTIONS.md](OPERATOR_ACTIONS.md) for the complete reference.
+
+**Required:**
+```
+JWT_SECRET=<generate a random 64+ char string>
+```
+
+**Auto-injected by Railway (if Postgres/Redis are linked):**
+```
+DATABASE_URL=<auto-injected by Railway Postgres plugin>
+REDIS_URL=<auto-injected by Railway Redis plugin>
+```
+
+Railway also injects `PGHOST`, `PGPORT`, `PGUSER`, `PGPASSWORD`, `PGDATABASE` which PayFlow uses as fallback if `DB_URL`/`DATABASE_URL` are not set.
+
+**Payment Providers (at least one required for transfers):**
+```
+KORAPAY_API_KEY=sk_live_...
+KORAPAY_PUBLIC_KEY=pk_live_...
+PAYSTACK_SECRET_KEY=sk_live_...
+```
+
+**Email (required for invitations, password resets, payslip delivery):**
+```
+SMTP_HOST=smtp-relay.brevo.com
+SMTP_PORT=587
+SMTP_USER=your-brevo-login
+SMTP_PASSWORD=your-smtp-password
+SMTP_FROM=no-reply@payflow.io
+APP_URL=https://app.payflow.io
+```
+
+**CORS (required for frontend access):**
+```
+CORS_ALLOWED_ORIGINS=https://app.payflow.io,https://payflowio.vercel.app
+```
+
+### 4. Database Migrations
+
+PayFlow supports two migration modes:
+
+**Option A: Auto-migration (Railway default)**
+When the database URL contains `railway` or `rlwy`, auto-migration is enabled automatically. GORM will create/update tables on startup. This is convenient but not recommended for production.
+
+**Option B: Traditional migrations (recommended for production)**
 ```bash
-make up
-# or
-docker-compose up -d
+# Set ENABLE_AUTO_MIGRATION=false in Railway env vars
+# Then run migrations manually:
+
+# Install golang-migrate
+brew install golang-migrate  # macOS
+# or: go install -tags 'postgres' github.com/golang-migrate/migrate/v4/cmd/migrate@latest
+
+# Apply migrations
+migrate -database "$DATABASE_URL" -path ./migrations up
+
+# Check current version
+migrate -database "$DATABASE_URL" -path ./migrations version
+
+# Rollback one migration
+migrate -database "$DATABASE_URL" -path ./migrations down 1
 ```
 
-### Services
+Current migration version: **000027** (payroll job tracking).
 
-| Service   | Image                  | Host Port | Container Port | Purpose                        |
-|-----------|------------------------|-----------|----------------|--------------------------------|
-| db        | postgres:15-alpine     | 5433      | 5432           | PostgreSQL database            |
-| redis     | redis:7-alpine         | 6379      | 6379           | Caching (optional)             |
-| mailhog   | mailhog/mailhog        | 8025 / 1025 | 8025 / 1025 | Email capture (Web UI / SMTP)  |
-| migrate   | migrate/migrate        | --        | --             | Runs golang-migrate on startup |
-| app       | Dockerfile.dev (hot-reload) | 8082 | 8080           | Go dev server with air         |
+### 5. Health Check Verification
 
-The `migrate` service runs all pending migrations automatically before `app` starts. PostgreSQL uses port **5433** on the host to avoid conflicts with any local Postgres instance.
-
-### Stopping
-
+After deployment, verify:
 ```bash
-make down
-# or
-docker-compose down
+curl https://your-app.railway.app/health
 ```
 
-To also remove data volumes:
-
-```bash
-docker-compose down -v
+Expected response:
+```json
+{
+  "status": "healthy",
+  "server": "ok",
+  "database": { "status": "ok", "message": "connected" },
+  "redis": { "status": "ok", "message": "connected" }
+}
 ```
-
-### Port Conflicts
-
-Docker containers sometimes hold onto port 8080 after a crash. If you see a bind error, either kill the stale container or use the mapped host port 8082 (which is the default in docker-compose).
 
 ---
 
-## Production Dockerfile
+## Vercel Frontend Setup
 
-The production `Dockerfile` uses a multi-stage build:
+### 1. Import Project
 
-1. **Builder stage** -- `golang:1.24-alpine`
-   - Downloads dependencies (`go mod download`)
-   - Compiles the binary: `CGO_ENABLED=0 go build -ldflags="-s -w" -o /payflow ./cmd/server`
-2. **Runner stage** -- `alpine:3.19`
-   - Copies the compiled binary
-   - Installs only `ca-certificates`
-   - Exposes port 8080
-   - Entrypoint: `./payflow`
+1. Go to [vercel.com](https://vercel.com) and import the repository.
+2. Set the **Root Directory** to `frontend`.
 
-The resulting image is minimal (no Go toolchain, no source code).
+### 2. Build Configuration
+
+| Setting | Value |
+|---------|-------|
+| Framework Preset | Vite |
+| Root Directory | `frontend` |
+| Build Command | `npm run build` |
+| Output Directory | `dist` |
+| Install Command | `npm install` |
+
+### 3. Environment Variables
+
+```
+VITE_API_URL=https://your-app.railway.app
+```
+
+### 4. SPA Routing
+
+Vercel needs a rewrite rule for client-side routing. Create `frontend/vercel.json`:
+```json
+{
+  "rewrites": [{ "source": "/(.*)", "destination": "/" }]
+}
+```
 
 ---
 
-## Railway Deployment
+## Redis / Asynq Setup
 
-### Configuration (railway.toml)
+Redis powers three features:
+1. **Caching:** Cadre and deduction rule caches for faster payroll computation.
+2. **Job Queue:** Asynq-based async email delivery with retry logic.
+3. **Scheduled Jobs:** Payroll processing scheduler (persistent across restarts).
 
-```toml
-[build]
-builder = "DOCKERFILE"
-dockerfilePath = "./Dockerfile"
+If Redis is not available, PayFlow degrades gracefully:
+- Cache misses fall through to the database.
+- Emails are sent synchronously (no retry).
+- Scheduler falls back to in-memory gocron (jobs lost on restart).
 
-[deploy]
-healthcheckPath = "/health"
-healthcheckTimeout = 30
-restartPolicyType = "ON_FAILURE"
-restartPolicyMaxRetries = 3
-```
-
-Railway builds using the production Dockerfile and monitors the `/health` endpoint. If the health check fails within 30 seconds of deploy, Railway rolls back. Failed containers restart up to 3 times.
-
-### Setup Steps
-
-1. Create a new Railway project and link the GitHub repository.
-2. Add a **PostgreSQL** service from the Railway dashboard.
-3. In the app service, add the following environment variables (at minimum):
-   - `DATABASE_URL` -- reference the Postgres service variable (e.g., `${{Postgres.DATABASE_URL}}`)
-   - `JWT_SECRET` -- a strong random string, at least 32 characters
-   - `KORAPAY_API_KEY` and `KORAPAY_PUBLIC_KEY` -- from your Korapay dashboard
-4. Railway injects `PORT` automatically; the app reads it at startup.
-5. Deploy. Railway will build the Docker image, run the health check, and route traffic.
-
-### Auto-Migration on Railway
-
-When `DATABASE_URL` contains `railway` or `rlwy`, the app automatically enables GORM auto-migration at startup. This is a convenience for early-stage deployments. For mature schemas, disable this by setting `ENABLE_AUTO_MIGRATION=false` and running golang-migrate manually (see [Database Migrations](#database-migrations)).
+**Railway:** Add the Redis plugin and link it to your backend service. The `REDIS_URL` variable is injected automatically.
 
 ---
 
-## Environment Variables
+## Domain / DNS Setup
 
-All configuration is loaded via [Viper](https://github.com/spf13/viper) from environment variables or a `.env` file in the project root. Environment variables take precedence over the file.
+### Custom Domain for Backend (Railway)
+1. In Railway, go to your backend service > Settings > Networking.
+2. Add your custom domain (e.g., `api.payflow.io`).
+3. Add a CNAME record in your DNS provider pointing to the Railway-provided hostname.
 
-### Server
+### Custom Domain for Frontend (Vercel)
+1. In Vercel, go to your project > Settings > Domains.
+2. Add your custom domain (e.g., `app.payflow.io`).
+3. Add the DNS records Vercel provides (A record or CNAME).
 
-| Variable            | Default  | Description                              |
-|---------------------|----------|------------------------------------------|
-| `SERVER_PORT`       | `8080`   | HTTP listen port. Railway overrides this via `PORT`. |
-| `LOG_LEVEL`         | `info`   | Log verbosity: debug, info, warn, error  |
-| `LOG_PRETTY`        | `false`  | Human-readable log output (set `true` for local dev) |
-| `CORS_ALLOWED_ORIGINS` | `https://payflowio.netlify.app` | Comma-separated list of allowed origins |
+### Webhook URLs
+After setting up your custom domain, register these webhook URLs with payment providers:
 
-### Database
-
-The app resolves the database DSN using a fallback chain. The first non-empty value wins:
-
-1. `DB_URL`
-2. `DATABASE_URL`
-3. `DATABASE_PRIVATE_URL`
-4. `DATABASE_PUBLIC_URL`
-5. Built from individual vars: `PGHOST`, `PGPORT`, `PGUSER`, `PGPASSWORD`, `PGDATABASE`, `PGSSLMODE`
-
-| Variable       | Default    | Description                       |
-|----------------|------------|-----------------------------------|
-| `PGHOST`       | --         | PostgreSQL host                   |
-| `PGPORT`       | `5432`     | PostgreSQL port                   |
-| `PGUSER`       | --         | PostgreSQL user                   |
-| `PGPASSWORD`   | --         | PostgreSQL password               |
-| `PGDATABASE`   | --         | PostgreSQL database name          |
-| `PGSSLMODE`    | `require`  | SSL mode (set `disable` for local dev) |
-
-| Variable              | Default | Description                                  |
-|-----------------------|---------|----------------------------------------------|
-| `ENABLE_AUTO_MIGRATION` | `false` | GORM auto-migrate on startup. Auto-enabled when DATABASE_URL contains "railway". Use `false` in production. |
-
-### Authentication
-
-| Variable              | Default | Description                                    |
-|-----------------------|---------|------------------------------------------------|
-| `JWT_SECRET`          | --      | **Required.** Server refuses to start without it. Must be a strong random string. |
-| `JWT_EXPIRATION_HOURS`| `72`    | Token lifetime in hours                        |
-
-### Korapay (Primary Payment Provider)
-
-| Variable             | Default                      | Description              |
-|----------------------|------------------------------|--------------------------|
-| `KORAPAY_API_KEY`    | --                           | Secret key from Korapay  |
-| `KORAPAY_PUBLIC_KEY` | --                           | Public key from Korapay  |
-| `KORAPAY_BASE_URL`   | `https://api.korapay.com`    | API base URL             |
-
-### VFD Bank (Secondary Provider, Optional)
-
-| Variable              | Default                                      | Description               |
-|-----------------------|----------------------------------------------|---------------------------|
-| `VFD_CONSUMER_KEY`    | --                                           | OAuth consumer key        |
-| `VFD_CONSUMER_SECRET` | --                                           | OAuth consumer secret     |
-| `VFD_BASE_URL`        | `https://api-devapps.vfdbank.systems`        | API base URL              |
-| `VFD_WEBHOOK_SECRET`  | --                                           | HMAC verification secret  |
-
-VFD configuration is entirely optional. The app gracefully handles a nil VFD service.
-
-### Transfer Configuration
-
-| Variable                          | Default     | Description                                    |
-|-----------------------------------|-------------|------------------------------------------------|
-| `TRANSFER_DEFAULT_PROVIDER`       | `korapay`   | Primary disbursement provider                  |
-| `TRANSFER_PROVIDER_FALLBACK_ORDER`| `vfd`       | Fallback provider(s) if primary fails          |
-| `TRANSFER_MIN_AMOUNT`             | `1000`      | Minimum transfer in kobo (NGN 10)              |
-| `TRANSFER_MAX_AMOUNT`             | `10000000`  | Maximum transfer in kobo (NGN 100,000)         |
-
-All monetary values are in the smallest currency unit (kobo for NGN). For example, 500000 = NGN 5,000.
-
-### Redis (Optional)
-
-| Variable    | Default | Description                                       |
-|-------------|---------|---------------------------------------------------|
-| `REDIS_URL` | --      | Redis connection string. App degrades gracefully without it. |
+| Provider | URL | Dashboard Location |
+|----------|-----|--------------------|
+| Paystack (transfers) | `https://api.payflow.io/paystack/webhooks/` | Settings > API Keys & Webhooks |
+| Paystack (billing) | `https://api.payflow.io/paystack/webhooks/billing` | Settings > API Keys & Webhooks |
+| KoraPay (deposits) | `https://api.payflow.io/korapay/webhooks/deposit` | Settings > Webhooks |
+| VFD Bank (inward credit) | `https://api.payflow.io/vfd/webhooks/inward-credit` | Contact VFD support |
 
 ---
 
-## Database Migrations
+## Monitoring
 
-PayFlow uses [golang-migrate](https://github.com/golang-migrate/migrate) for schema migrations. GORM auto-migrate is **not** used in production.
+### Health Checks
+- **Readiness:** `GET /health` - returns 200 when DB + Redis are reachable, 503 otherwise.
+- **Liveness:** `GET /health/live` - returns 200 if the process is running.
 
-### Migration Files
+### Logs
+Railway provides built-in log streaming. PayFlow uses structured JSON logging (zerolog).
 
-All migration files live in `/migrations/` and follow the naming convention:
+Set `LOG_LEVEL=debug` for verbose output during troubleshooting, `LOG_LEVEL=info` for production.
 
-```
-000001_create_users_table.up.sql
-000001_create_users_table.down.sql
-```
+Set `LOG_PRETTY=true` for human-readable console output (local development only).
 
-The project is currently at version **11** (`000011_add_performance_indexes`).
-
-### Running Migrations
-
-**Via Docker Compose** (automatic on `docker-compose up`):
-
-The `migrate` service applies all pending up-migrations before the app starts.
-
-**Via Make targets** (manual, requires `migrate` CLI installed):
-
-```bash
-# Set DSN for local database
-export DSN="postgres://payflow_user:payflow_secret@localhost:5433/payflow_db?sslmode=disable"
-
-# Apply all pending migrations
-make migrate-up
-
-# Revert the last migration
-make migrate-down
-```
-
-**Via migrate CLI directly:**
-
-```bash
-migrate -database "$DSN" -path ./migrations up
-migrate -database "$DSN" -path ./migrations down 1
-```
-
-### Creating a New Migration
-
-```bash
-make migrate-create
-# Prompts for a name, then creates:
-#   migrations/000012_your_name.up.sql
-#   migrations/000012_your_name.down.sql
-```
-
-Write the up (apply) and down (rollback) SQL, then commit both files.
-
-### Migration Strategy
-
-- **Local development**: Docker Compose runs migrations automatically. You can also run `make migrate-up` manually against the host-mapped port (5433).
-- **Railway**: Auto-migration via GORM is enabled by default (detected from DATABASE_URL). For more control, set `ENABLE_AUTO_MIGRATION=false` and run golang-migrate against the Railway Postgres instance using the connection string from the dashboard.
-- **General rule**: Every schema change must have a corresponding migration file. Never modify a migration that has already been applied to a shared environment.
-
----
-
-## Health Checks
-
-Two endpoints are available for orchestrators and load balancers:
-
-| Endpoint        | Purpose          | Behavior                                           |
-|-----------------|------------------|----------------------------------------------------|
-| `GET /health`   | Readiness probe  | Checks DB and Redis connectivity. Returns JSON with component status. |
-| `GET /health/live` | Liveness probe | Returns HTTP 200 immediately. No dependency checks. |
-
-Railway uses `GET /health` with a 30-second timeout as its readiness gate during deployments.
-
-Health check requests are excluded from request logging to reduce noise.
+### Background Jobs
+Two background jobs run automatically:
+1. **Daily Reconciliation:** Runs 1 minute after startup, then every 24 hours. Verifies wallet balances match ledger totals.
+2. **Weekly Provider Reconciliation:** Runs 5 minutes after startup, then every 7 days. Cross-checks transfer records with payment provider APIs.
 
 ---
 
 ## Troubleshooting
 
-### Server fails to start: missing JWT_SECRET
+### "JWT_SECRET is required" on startup
+Ensure `JWT_SECRET` is set in Railway environment variables. It must be a non-empty string (minimum 32 characters recommended).
 
-`JWT_SECRET` is required and has no default. Set it in your `.env` file or as an environment variable:
-
+### Database connection fails
+Check that PostgreSQL is linked to the backend service in Railway. Verify with:
 ```bash
-export JWT_SECRET="your-secret-key-at-least-32-characters"
+railway run printenv | grep -E "DATABASE_URL|PGHOST"
 ```
 
-### Port 8080 already in use
-
-This commonly happens when a previous Docker container did not shut down cleanly. Solutions:
-
-```bash
-# Find and kill the process
-lsof -i :8080
-kill -9 <PID>
-
-# Or use the host-mapped port 8082 (default in docker-compose)
-```
-
-### Database connection refused
-
-Ensure the Postgres container is running and healthy:
-
-```bash
-docker-compose ps db
-```
-
-If connecting from the host, use port **5433** (not 5432):
-
-```bash
-psql "postgres://payflow_user:payflow_secret@localhost:5433/payflow_db?sslmode=disable"
-```
-
-### Migrations fail with "dirty" state
-
-If a migration partially applied and left the schema in a dirty state:
-
+### Migrations stuck (dirty state)
 ```bash
 # Force the version to the last known good migration
-migrate -database "$DSN" -path ./migrations force <VERSION_NUMBER>
-
+migrate -database "$DATABASE_URL" -path ./migrations force <version_number>
 # Then re-run
-migrate -database "$DSN" -path ./migrations up
+migrate -database "$DATABASE_URL" -path ./migrations up
 ```
 
-### Railway deploy fails health check
+### CORS errors from frontend
+Ensure `CORS_ALLOWED_ORIGINS` includes the exact frontend URL (including protocol, no trailing slash).
 
-Check the deploy logs in the Railway dashboard. Common causes:
-- `DATABASE_URL` not set or not referencing the Postgres service correctly
-- `JWT_SECRET` not set
-- The app crashed before it could bind to the port (check for panic in logs)
-
----
-
-## Production Deployment Checklist
-
-### Railway Setup
-
-```
-[ ] 1. Create Railway project, link GitHub repo
-[ ] 2. Add PostgreSQL service
-[ ] 3. Add Redis service (optional but recommended)
-[ ] 4. Set environment variables (see below)
-[ ] 5. Deploy — verify /health returns "healthy"
-[ ] 6. Run migrations if ENABLE_AUTO_MIGRATION=false
-```
-
-### Required Environment Variables for Production
-
-```bash
-# MUST SET — server won't start without these
-JWT_SECRET=<random-64-char-string>
-
-# Database — reference Railway's Postgres service
-DATABASE_URL=${{Postgres.DATABASE_URL}}
-
-# Payment provider — at least one
-PAYSTACK_SECRET_KEY=sk_live_your_paystack_live_key
-ENABLED_PROVIDERS=paystack
-TRANSFER_DEFAULT_PROVIDER=paystack
-
-# Email — Brevo SMTP (free 300/day)
-SMTP_HOST=smtp-relay.brevo.com
-SMTP_PORT=587
-SMTP_USER=your_brevo_login
-SMTP_PASSWORD=your_brevo_smtp_key
-SMTP_FROM=payroll@yourdomain.com
-
-# Application URL (for email links)
-APP_URL=https://payflowio.netlify.app
-CORS_ALLOWED_ORIGINS=https://payflowio.netlify.app
-
-# Redis (if added)
-REDIS_URL=${{Redis.REDIS_URL}}
-
-# Production settings
-LOG_LEVEL=info
-LOG_PRETTY=false
-ENABLE_AUTO_MIGRATION=false
-```
-
-### Brevo SMTP Setup (Free)
-
-1. Sign up at [brevo.com](https://www.brevo.com) (free, no credit card)
-2. Go to Settings > SMTP & API
-3. Create an SMTP key
-4. Use these values:
-   - Host: `smtp-relay.brevo.com`
-   - Port: `587`
-   - User: your Brevo login email
-   - Password: the SMTP key you created
-
-### Paystack Live Keys
-
-1. Log into [dashboard.paystack.com](https://dashboard.paystack.com)
-2. Toggle from Test to Live mode
-3. Copy your live secret key (`sk_live_...`)
-4. Set `PAYSTACK_SECRET_KEY` in Railway
-
-### Post-Deploy Verification
-
-```bash
-# Health check
-curl https://your-railway-url.up.railway.app/health
-
-# Expected response:
-# {"status":"healthy","message":"Server is running. All systems operational.","server":"ok","database":{"status":"ok","message":"connected"},"redis":{"status":"ok","message":"connected"}}
-
-# Test login
-curl -X POST https://your-railway-url.up.railway.app/v1/auth/login \
-  -H "Content-Type: application/json" \
-  -d '{"email":"admin@yourcompany.com","password":"yourpassword"}'
-```
-
-### Database Backup (Railway)
-
-Railway provides automated daily backups for PostgreSQL. To manually backup:
-
-```bash
-# From Railway CLI
-railway run pg_dump $DATABASE_URL > backup_$(date +%Y%m%d).sql
-
-# Restore
-railway run psql $DATABASE_URL < backup_20260528.sql
-```
+### Transfers failing
+1. Check that at least one provider is enabled: `ENABLED_PROVIDERS=korapay,paystack,vfd`
+2. Verify provider API keys are set and valid.
+3. Check that `TRANSFER_DEFAULT_PROVIDER` matches an enabled provider.

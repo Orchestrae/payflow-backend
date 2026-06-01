@@ -1,287 +1,386 @@
 # PayFlow Architecture
 
-PayFlow is a multi-tenant payroll SaaS platform built in Go. It handles employee management, payroll processing, wallet-based fund disbursement, and integrations with Nigerian payment providers (Korapay, VFD Bank).
+## System Architecture
 
----
+```mermaid
+graph TB
+    subgraph "Client Layer"
+        ADMIN[Admin Dashboard<br/>React SPA]
+        SELF[Employee Portal<br/>React SPA]
+        MOBILE[Future: Mobile App]
+    end
 
-## Table of Contents
+    subgraph "API Gateway"
+        LB[Railway Load Balancer<br/>TLS Termination]
+    end
 
-- [Tech Stack](#tech-stack)
-- [Directory Structure](#directory-structure)
-- [Clean Architecture Layers](#clean-architecture-layers)
-- [Request Lifecycle](#request-lifecycle)
-- [Domain Models](#domain-models)
-- [Payroll State Machine](#payroll-state-machine)
-- [Key Design Patterns](#key-design-patterns)
-- [Security](#security)
-- [Caching and Job Queue](#caching-and-job-queue)
-- [Payment Providers](#payment-providers)
-- [Scaling History and Roadmap](#scaling-history-and-roadmap)
-- [Cross-References](#cross-references)
+    subgraph "Application Layer"
+        ROUTER[Chi Router<br/>CORS + Rate Limiting]
+        AUTH_MW[JWT Auth Middleware<br/>Role Guard]
 
----
+        subgraph "Handler Layer"
+            AUTH_H[Auth Handler]
+            EMP_H[Employee Handler]
+            CADRE_H[Cadre Handler]
+            PAY_H[Payroll Handler]
+            TXF_H[Transfer Handler]
+            WAL_H[Wallet Handler]
+            BILL_H[Billing Handler]
+            PLAT_H[Platform Handler]
+            WHOOK_H[Webhook Handlers]
+        end
 
-## Tech Stack
+        subgraph "Service Layer"
+            AUTH_S[Auth Service]
+            EMP_S[Employee Service]
+            CADRE_S[Cadre Service]
+            PAY_S[Payroll Service]
+            TXF_S[Transfer Service]
+            WAL_S[Wallet Service]
+            LEDGER_S[Ledger Service]
+            BILL_S[Billing Service]
+            RECON_S[Reconciliation Service]
+            NOTIF_S[Notification Service]
+        end
 
-| Component         | Technology                                  |
-|-------------------|---------------------------------------------|
-| Language          | Go 1.24+                                    |
-| HTTP Router       | Chi v5                                      |
-| ORM               | GORM                                        |
-| Database          | PostgreSQL 15                               |
-| Cache / Queue     | Redis 7 (caching + Asynq job queue)         |
-| Authentication    | JWT (HS256)                                 |
-| Payment (primary) | Korapay (virtual accounts, disbursements)   |
-| Payment (fallback)| VFD Bank (corporate accounts, transfers)    |
-| Logging           | zerolog (structured JSON)                   |
-| Configuration     | Viper                                       |
-| Email             | SendGrid (production), Mailhog (dev)        |
-| Migrations        | golang-migrate (SQL files, version 000011)  |
-| Deployment        | Docker + Railway                            |
+        subgraph "Repository Layer"
+            USER_R[User Repo]
+            BIZ_R[Business Repo]
+            EMP_R[Employee Repo]
+            PAY_R[Payroll Repo]
+            WAL_R[Wallet Repo]
+            TXF_R[Transfer Repo]
+            LEDGER_R[Ledger Repo]
+        end
 
----
+        subgraph "Background Jobs"
+            SCHED[Asynq Scheduler]
+            EMAIL_Q[Email Queue]
+            PAYOUT_Q[Payout Processor]
+            RECON_BG[Daily Reconciliation]
+        end
+    end
 
-## Directory Structure
+    subgraph "Data Layer"
+        PG[(PostgreSQL 16<br/>Primary)]
+        PG_READ[(PostgreSQL<br/>Read Replica)]
+        REDIS[(Redis 7<br/>Cache + Queue)]
+    end
 
-```
-cmd/server/main.go              -- Entry point, dependency injection wiring
+    subgraph "External Services"
+        KORA[KoraPay<br/>Virtual Accounts<br/>Transfers]
+        PSK[Paystack<br/>Transfers<br/>Billing<br/>Verification]
+        VFD[VFD Bank<br/>Corporate Accounts<br/>Transfers]
+        SMTP_SVC[SMTP Server<br/>Brevo / SendGrid]
+    end
 
-internal/
-  api/
-    handler/                    -- HTTP handlers (11 files)
-    middleware/                  -- Auth, Logger, RateLimiter, RequestID
-    request/                    -- Request DTOs + validation
-    response/                   -- Response DTOs + error mapping
-    router.go                   -- Chi router setup
+    ADMIN & SELF --> LB --> ROUTER
+    ROUTER --> AUTH_MW --> AUTH_H & EMP_H & CADRE_H & PAY_H & TXF_H & WAL_H & BILL_H & PLAT_H
+    WHOOK_H --> WAL_S & TXF_S
 
-  config/                       -- Viper-based configuration
+    AUTH_H --> AUTH_S
+    EMP_H --> EMP_S
+    PAY_H --> PAY_S
+    TXF_H --> TXF_S
+    WAL_H --> WAL_S
+    BILL_H --> BILL_S
 
-  domain/                       -- Domain models + interfaces (14 files)
+    AUTH_S & EMP_S --> USER_R & BIZ_R & EMP_R
+    PAY_S --> PAY_R & EMP_R
+    WAL_S --> WAL_R
+    TXF_S --> TXF_R
+    LEDGER_S --> LEDGER_R
 
-  platform/
-    cache/                      -- Redis client + cache-aside service
-    database/                   -- GORM PostgreSQL setup
-    korapay/                    -- Korapay payment provider client
-    scheduler/                  -- Asynq (Redis) + gocron (fallback)
-    sendgrid/                   -- Email service
-    vfd/                        -- VFD Bank provider client
+    USER_R & BIZ_R & EMP_R & PAY_R & WAL_R & TXF_R --> PG
+    LEDGER_R --> PG_READ
 
-  repository/
-    postgres/                   -- PostgreSQL implementations
-    repository.go               -- Repository interfaces
+    SCHED --> REDIS
+    EMAIL_Q --> REDIS
+    CADRE_S --> REDIS
 
-  service/
-    provider/                   -- Transfer provider manager (strategy pattern)
-    vfd/                        -- VFD-specific services
-    *.go                        -- Core services (auth, payroll, transfer, wallet, etc.)
+    TXF_S --> KORA & PSK & VFD
+    WAL_S --> KORA
+    BILL_S --> PSK
+    AUTH_S --> VFD
+    NOTIF_S --> SMTP_SVC
 
-pkg/utils/                      -- JWT, password hashing utilities
-
-migrations/                     -- golang-migrate SQL files (000001 through 000011)
+    KORA & PSK & VFD -->|Webhooks| WHOOK_H
 ```
 
 ---
 
 ## Clean Architecture Layers
 
-The codebase follows clean architecture with strict dependency direction. Outer layers depend on inner layers; inner layers never import from outer layers.
+PayFlow follows a clean (hexagonal) architecture with four distinct layers:
 
 ```
-  Handler  -->  Service  -->  Repository  -->  Database
-     |              |
-     v              v
-  Request/       Domain
-  Response       Models &
-  DTOs           Interfaces
+Handler Layer (HTTP)  -->  Service Layer (Business Logic)  -->  Repository Layer (Data Access)
+       |                           |                                     |
+  Request DTOs              Domain Models                         PostgreSQL
+  Response DTOs             Domain Errors                         (via GORM)
+  Validation                Interfaces
 ```
 
-**Domain** -- Entities, repository interfaces, service interfaces, and typed errors. Zero external dependencies.
+### Layer Responsibilities
 
-**Service** -- Business logic and orchestration. Services depend only on domain interfaces, never on concrete implementations.
+| Layer | Package | Responsibility |
+|-------|---------|---------------|
+| **Handler** | `internal/api/handler/` | HTTP request/response handling, input validation, auth extraction |
+| **Service** | `internal/service/` | Business logic, orchestration, domain rules |
+| **Repository** | `internal/repository/postgres/` | Database queries, GORM operations |
+| **Domain** | `internal/domain/` | Models, interfaces, errors, constants |
+| **Platform** | `internal/platform/` | External service clients (Korapay, Paystack, VFD, SMTP) |
 
-**Repository** -- Data access behind interfaces. The `postgres/` package is the sole implementation. Some repositories use domain models directly with GORM tags (deduction_rule, cadre, payroll). Others use internal postgres models with `ToDomain`/`FromDomain` converters (user, business, employee).
+### Dependency Direction
 
-**Handler** -- HTTP request/response translation. Parses requests into DTOs, calls services, maps results to response DTOs or error responses.
-
-**Platform** -- External integrations (database connections, Redis, payment providers, email). These are injected into services at startup.
-
----
-
-## Request Lifecycle
-
-1. HTTP request arrives at Chi router.
-2. Global middleware executes in order: RequestID, Logger, RateLimiter.
-3. Route-specific middleware (Auth) validates JWT and injects claims into context.
-4. Handler parses and validates the request body into a request DTO.
-5. Handler calls the appropriate service method.
-6. Service executes business logic, calling repositories and platform integrations.
-7. Handler maps the result to a response DTO and writes JSON.
-
-Claims extraction in handlers always uses `middleware.GetClaimsFromContext(ctx)`. Direct context value access is not used.
+Dependencies flow inward: handlers depend on services, services depend on repositories and domain interfaces, repositories depend on domain models. External services are abstracted behind interfaces defined in `domain/`.
 
 ---
 
-## Domain Models
+## Data Flow Diagrams
 
-Domain models carry both GORM struct tags (for direct-model repositories) and JSON tags (snake_case, for API serialization).
+### Business Registration
 
-Monetary values are stored as `int64` in the smallest currency unit (kobo for NGN). For example, `500000` represents NGN 5,000.00.
+```mermaid
+sequenceDiagram
+    participant U as User
+    participant API as Auth Handler
+    participant AS as Auth Service
+    participant VFD as VFD Bank
+    participant DB as PostgreSQL
+    participant SMTP as Email Service
 
-Key entities:
-
-- **Business** -- Tenant. All data is scoped to a business.
-- **User** -- Business owner / admin.
-- **Employee** -- Belongs to a business and a cadre.
-- **Cadre** -- Employee group with associated deduction rules.
-- **DeductionRule** -- Tax, pension, or custom deduction tied to a cadre.
-- **Payroll** -- A pay run containing payroll items for employees.
-- **PayrollItem** -- One employee's line in a payroll (gross, deductions, net).
-- **Wallet** -- Business wallet for funding payroll disbursements.
-- **Transfer** -- Individual disbursement to an employee's bank account.
-
----
-
-## Payroll State Machine
-
-A payroll moves through these states:
-
-```
-draft --> pending_approval --> approved --> processing --> completed
-                |                             |
-                v                             v
-            rejected                        failed
+    U->>API: POST /v1/auth/register
+    API->>AS: RegisterBusiness()
+    AS->>DB: Check email uniqueness
+    AS->>AS: Hash password (bcrypt)
+    AS->>DB: Create Business (transaction)
+    AS->>DB: Create User (admin role)
+    AS->>DB: Create default Cadre
+    AS->>DB: Create free Subscription
+    AS->>VFD: CreateCorporateAccount()
+    VFD-->>AS: Account number
+    AS->>DB: Store corporate account info
+    AS->>SMTP: Send verification email
+    AS-->>API: User + Corporate Account
+    API-->>U: 201 Created
 ```
 
-- **draft**: Payroll created, items can be edited.
-- **pending_approval**: Submitted for review.
-- **approved**: Authorized, ready for disbursement.
-- **processing**: Transfers in flight.
-- **completed**: All transfers settled.
-- **rejected**: Returned during approval.
-- **failed**: Transfer errors during processing.
+### Payroll Lifecycle
 
-See [Payroll Guide](./PAYROLL_GUIDE.md) for the full payroll lifecycle.
+```mermaid
+sequenceDiagram
+    participant OP as Operator
+    participant API as Payroll Handler
+    participant PS as Payroll Service
+    participant DB as PostgreSQL
+    participant SCHED as Scheduler
+    participant TXF as Transfer Service
+    participant PROV as Payment Provider
+    participant SMTP as Email Service
 
----
+    Note over OP,SMTP: Phase 1: Create Payroll Run
+    OP->>API: POST /v1/payroll-runs
+    API->>PS: CreateAndStorePayrollRun()
+    PS->>DB: Load all active employees + cadres
+    PS->>PS: Calculate gross pay per employee
+    PS->>PS: Calculate PAYE (Nigeria tax bands)
+    PS->>PS: Calculate pension (8% employee + 10% employer)
+    PS->>PS: Calculate NHF (2.5%)
+    PS->>PS: Apply custom deduction rules
+    PS->>PS: Deduct active loan repayments
+    PS->>PS: Apply per-employee adjustments
+    PS->>PS: Calculate net pay
+    PS->>DB: Store payroll run + entries (status=draft)
+    PS-->>API: PayrollRun with entries
+    API-->>OP: 201 Created
 
-## Key Design Patterns
+    Note over OP,SMTP: Phase 2: Submit for Approval
+    OP->>API: POST /v1/payroll-runs/{id}/submit
+    API->>PS: SubmitForApproval()
+    PS->>DB: Update status to pending_approval
+    PS->>SMTP: Notify approvers
+    PS-->>API: 202 Accepted
 
-### 1. Strategy Pattern -- Transfer Provider Manager
+    Note over OP,SMTP: Phase 3: Approval
+    OP->>API: POST /v1/payroll-runs/{id}/approve
+    API->>PS: ApprovePayrollRun()
+    PS->>DB: Update status to approved
+    PS->>SCHED: Schedule payout job
+    PS-->>API: PayrollRun
 
-`TransferProviderManager` in `internal/service/provider/` implements a strategy pattern for payment disbursements. Korapay is the primary provider; VFD Bank is the fallback. The manager selects the active provider at runtime and can fall back automatically on failure.
+    Note over OP,SMTP: Phase 4: Processing
+    SCHED->>PS: ProcessPayrollRun()
+    loop For each employee entry
+        PS->>TXF: ExecuteTransfer()
+        TXF->>PROV: Send transfer
+        PROV-->>TXF: Transfer result
+        TXF->>DB: Record transfer
+    end
+    PS->>DB: Update status to completed
+    PS->>SMTP: Notify admin of completion
+```
 
-### 2. Cache-Aside with Nil-Safe Degradation
+### Wallet Deposit Flow
 
-The generic `GetOrLoad[T]` function in `internal/platform/cache/` implements cache-aside:
-- Check Redis for cached value.
-- On miss, call the loader function, cache the result (5 min TTL), and return.
-- If Redis is unavailable, the loader is called directly. The application works without Redis.
+```mermaid
+sequenceDiagram
+    participant U as User
+    participant API as Wallet Handler
+    participant PSK as Paystack
+    participant WH as Webhook Handler
+    participant WS as Wallet Service
+    participant LS as Ledger Service
+    participant DB as PostgreSQL
 
-### 3. Interface-Based Repositories
+    Note over U,DB: Option A: Paystack Checkout Deposit
+    U->>API: POST /v1/wallets/deposit
+    API->>PSK: Initialize transaction
+    PSK-->>API: Payment URL
+    API-->>U: Redirect URL
 
-All repositories are defined as interfaces in the domain layer. The `postgres/` package provides the only concrete implementation. This enables testing with mocks and keeps the service layer decoupled from the database.
+    U->>PSK: Complete payment
+    PSK->>WH: POST /paystack/webhooks/ (charge.success)
+    WH->>WH: Verify HMAC-SHA512 signature
+    WH->>WS: RecordDeposit()
+    WS->>DB: Credit wallet balance
+    WS->>LS: Record ledger entry (double-entry)
+    LS->>DB: Debit: Bank, Credit: Wallet
 
-### 4. Atomic Wallet Operations
-
-Wallet balance updates use atomic SQL (`UPDATE wallets SET balance = balance - ? WHERE balance >= ? AND id = ?`). There is no read-modify-write cycle, eliminating race conditions on concurrent debits.
-
-### 5. Worker Pool for Bulk Transfers
-
-Payroll disbursement fans out transfers to a pool of 5 concurrent workers communicating via Go channels. This bounds concurrency against the payment provider API while processing transfers in parallel.
-
----
-
-## Security
-
-- **JWT**: HS256 tokens. The signing secret is required at startup (no insecure defaults).
-- **Webhook Verification**: Mandatory HMAC-SHA256 verification for both Korapay and VFD Bank webhooks. The raw request body is hashed with the provider's secret key.
-- **Rate Limiting**: 100 requests/second globally, 5 requests/second on authentication endpoints.
-- **Request Tracing**: Every request gets a unique request ID via middleware; zerolog includes it in all log entries.
-- **CORS**: Restricted to `payflowio.netlify.app` and `localhost` (development).
-- **Password Hashing**: bcrypt via `pkg/utils/`.
-
----
-
-## Caching and Job Queue
-
-Both caching and the job queue run on Redis 7.
-
-**Caching**: Cache-aside pattern on read-heavy entities (e.g., cadres, 5 min TTL). The cache service degrades gracefully if Redis is down.
-
-**Job Queue**: Asynq processes background jobs (e.g., scheduled payroll runs) with persistent storage in Redis, automatic retries (3 attempts), and dead-letter handling. Asynq replaced an earlier gocron-based scheduler; gocron remains as a fallback.
-
-**Health Checks**: The `/health` endpoint performs deep checks, pinging both PostgreSQL and Redis to confirm connectivity.
-
----
-
-## Payment Providers
-
-### Korapay (Primary)
-
-- Virtual account creation for businesses.
-- Bank account disbursements for payroll transfers.
-- Account holder KYC.
-- Webhook notifications with HMAC-SHA256 verification (hash the `data` field with the secret key).
-- Sandbox keys prefixed with `sk_test_`.
-
-### VFD Bank (Fallback)
-
-- Corporate account management.
-- Bank transfers.
-- Webhook verification (HMAC-SHA256).
-- Integration is optional; the auth service handles a nil VFD service gracefully.
-
-The `TransferProviderManager` abstracts both behind a common interface so the payroll service does not couple to either provider directly.
-
-See [Wallet Guide](./WALLET_GUIDE.md) for funding and disbursement flows.
-
----
-
-## Scaling History and Roadmap
-
-### Phase 1 -- Quick Wins (Complete)
-
-Target: ~500 organizations.
-
-- Fixed N+1 queries with batch cadre and employee loading.
-- Batch transfer inserts using GORM `CreateInBatches`.
-- Atomic wallet operations at the SQL level.
-- Performance indexes and CHECK constraints (migration 000011).
-
-### Phase 2 -- Security and Redis (Complete)
-
-Target: ~2,000 organizations.
-
-- JWT secret enforcement (no insecure defaults).
-- Mandatory webhook HMAC verification.
-- Rate limiting middleware.
-- Request logging and request ID middleware.
-- Redis caching (cache-aside, 5 min TTL).
-- Asynq job queue (persistent, 3 retries).
-- Deep health checks on `/health`.
-
-### Phase 3 -- Planned
-
-Target: ~5,000 organizations.
-
-- Read replica for reporting queries.
-- Async payroll processing (fully event-driven).
-- Circuit breaker on payment provider calls.
-
-### Phase 4 -- Planned
-
-Target: 50,000+ organizations.
-
-- Table partitioning (payroll items, transfers by date).
-- Event-driven architecture (publish/subscribe).
-- Service extraction (payroll engine, transfer service as independent services).
+    Note over U,DB: Option B: Virtual Account Transfer
+    U->>U: Bank transfer to virtual account
+    PSK->>WH: POST /korapay/webhooks/deposit
+    WH->>WS: RecordDeposit()
+    WS->>DB: Credit wallet balance
+    WS->>LS: Record ledger entry
+```
 
 ---
 
-## Cross-References
+## Background Jobs
 
-- [API Reference](./API_REFERENCE.md) -- Endpoint documentation and request/response schemas.
-- [Payroll Guide](./PAYROLL_GUIDE.md) -- Payroll lifecycle, state transitions, and disbursement flow.
-- [Wallet Guide](./WALLET_GUIDE.md) -- Wallet funding, balance management, and transfer settlement.
-- [Deployment Guide](./DEPLOYMENT.md) -- Docker, Railway, and environment configuration.
-- [Postman Collection](./PayFlow_API.postman_collection.json) -- Importable API collection for testing.
+| Job | Schedule | Description |
+|-----|----------|-------------|
+| **Payroll Payout Processing** | On-demand (after approval) | Processes approved payroll runs by executing transfers for each employee. Uses Asynq if Redis available, gocron otherwise. |
+| **Email Delivery** | Async (queue) | Emails are queued via Asynq for reliable delivery with automatic retry. Falls back to synchronous sending if Redis unavailable. |
+| **Daily Reconciliation** | Every 24 hours | Verifies wallet balances match ledger totals. Alerts admin on discrepancy. Starts 1 minute after server boot. |
+| **Weekly Provider Reconciliation** | Every 7 days | Cross-checks internal transfer records with payment provider APIs. Identifies stuck/orphaned transactions. Starts 5 minutes after boot. |
+
+---
+
+## Security Model
+
+### Authentication
+- **JWT Bearer tokens** with configurable expiration (default 72 hours).
+- Passwords hashed with **bcrypt**.
+- Tokens contain: `user_id`, `business_id`, `role`, `exp`.
+
+### Authorization (RBAC)
+| Role | Scope |
+|------|-------|
+| `super_admin` | Platform-wide: all organizations, platform settings, reconciliation |
+| `admin` | Business-wide: all features for their organization |
+| `operator` | Employees, payroll creation/submission, transfers, loans |
+| `approver` | View payroll, approve/reject payroll runs |
+| `employee` | Self-service: profile, payslips, leave requests |
+
+### Multi-Tenancy
+- Every query is scoped by `business_id` extracted from the JWT.
+- Repository methods enforce tenant isolation at the query level.
+- No cross-tenant data access is possible through the API.
+
+### Rate Limiting
+- Global: 100 req/sec per IP.
+- Auth endpoints: 5 req/sec per IP (brute force protection).
+- Transfer creation: 10/hour, 50/day per business (velocity limiting).
+- Batch transfers: 5/hour, 20/day per business.
+
+### Encryption
+- Platform settings (API keys, secrets) encrypted at rest with **AES-256-GCM**.
+- Encryption key derived from first 32 bytes of `JWT_SECRET`.
+- Org-level provider key overrides also encrypted.
+
+### Webhook Verification
+- Paystack: HMAC-SHA512 signature verification using `x-paystack-signature` header.
+- VFD: Webhook secret verification.
+- KoraPay: Signature verification via KoraPay client.
+
+---
+
+## Database Schema Overview
+
+Current migration version: **000027**.
+
+### Core Tables
+
+| Table | Description |
+|-------|-------------|
+| `businesses` | Tenant organizations with statutory settings and payroll config |
+| `users` | Admin, operator, approver, employee accounts with bcrypt passwords |
+| `user_tokens` | Password reset tokens, invitation tokens, email verification tokens |
+| `employees` | Employee records with bank details, cadre assignment, tax IDs |
+| `cadres` | Salary structures with JSON earning components |
+| `deduction_rules` | Custom deduction rules (percentage or flat, based on gross or basic) |
+
+### Payroll Tables
+
+| Table | Description |
+|-------|-------------|
+| `payroll_runs` | Payroll run header: period, status, totals, processing metadata |
+| `payroll_run_entries` | Per-employee payroll breakdown: gross, PAYE, pension, NHF, net |
+| `payroll_entry_details` | Line-item details for each entry (earning components, deductions) |
+
+### Financial Tables
+
+| Table | Description |
+|-------|-------------|
+| `wallets` | Business wallet with balance and virtual account details |
+| `wallet_transactions` | Wallet transaction log (deposits, withdrawals) |
+| `transfers` | Provider-agnostic transfer records |
+| `vfd_transfers` | Legacy VFD-specific transfer records |
+| `ledger_entries` | Double-entry accounting ledger |
+| `employee_loans` | Loan records with monthly deduction tracking |
+
+### Platform Tables
+
+| Table | Description |
+|-------|-------------|
+| `subscription_plans` | Billing plan definitions (Free, Growth, Enterprise) |
+| `subscriptions` | Business subscription state |
+| `invoices` | Billing invoice records |
+| `platform_settings` | Encrypted platform-wide settings |
+| `org_provider_settings` | Encrypted org-level provider key overrides |
+
+### Supporting Tables
+
+| Table | Description |
+|-------|-------------|
+| `audit_logs` | Audit trail for admin actions |
+| `notifications` | In-app notification records |
+| `vfd_webhook_notifications` | VFD webhook payload archive |
+| `leave_types` | Leave type definitions per business |
+| `leave_requests` | Employee leave requests with approval status |
+| `leave_balances` | Leave balance tracking per employee per year |
+
+---
+
+## Caching Strategy
+
+PayFlow uses Redis as an optional cache layer. All caching is nil-safe -- if Redis is unavailable, operations fall through to the database.
+
+### Cached Data
+
+| Data | TTL | Invalidation |
+|------|-----|-------------|
+| Cadre list (per business) | Until mutation | Invalidated on create/update/delete |
+| Deduction rules (per business) | Until mutation | Invalidated on create/update/delete |
+| Wallet balance | Short-lived | Invalidated on deposit/withdrawal |
+
+### Cache Pattern
+
+```
+Read: Cache -> DB (cache-aside / lazy loading)
+Write: DB first -> Invalidate cache
+```
+
+The cache service is injected into services that benefit from caching. Services that do not benefit (payroll runs, transfers) always read from the database.

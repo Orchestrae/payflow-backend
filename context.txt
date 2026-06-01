@@ -1,232 +1,45 @@
 ================================================================================
 PAYFLOW - PROJECT CONTEXT
-Last updated: 2026-05-28
+Last updated: 2026-06-01
 ================================================================================
 
-## PROJECT OVERVIEW
-PayFlow is a B2B payroll SaaS for Nigerian businesses. Go backend with Chi router,
-GORM ORM, PostgreSQL, Redis. Deployed on Railway. Frontend on Netlify (React).
+## Overview
+PayFlow is a B2B payroll SaaS for African businesses (Nigeria, Ghana).
+Handles employee management, payroll calculation, tax compliance, wallet/payments, and HR functions.
 
-## CURRENT SCALING CAPACITY
-~2,000 organizations (up from ~500 after Phase 2)
+## Tech Stack
+- Backend: Go 1.26, Chi v5 router, GORM ORM, PostgreSQL, Redis, Asynq
+- Frontend: React 18, TypeScript, Vite, Tailwind CSS, TanStack Query, Zustand
+- Email: Brevo SMTP via Asynq async queue
+- Payments: Paystack, KoraPay, VFD
+- Deployment: Railway (backend), Vercel (frontend)
 
-## COMPLETED WORK
+## Current Migration Version: 000027
 
-### Phase 1: Quick Wins (2026-05-28) ✅
-- Fixed N+1 cadre loading in CalculatePayrollRun (1000 queries → 1)
-- Fixed N+1 employee loading in ProcessPayrollRunInstantly (1000 queries → 1)
-- Batch transfer record creation via CreateInBatches (1000 inserts → 10)
-- Atomic wallet operations (LockBalance, UnlockBalance, RecordDeposit, RecordWithdrawal)
-- Migration 000011: performance indexes + wallet CHECK constraints
+## Features
+- Multi-country payroll (Nigeria PAYE/Pension/NHF/NSITF, Ghana SSNIT)
+- Payroll lifecycle: create > submit > approve > process > complete
+- Multi-cadre salary structures with custom deduction rules
+- Employee management with CSV import and BVN verification
+- Business wallet with virtual accounts (KoraPay)
+- Deposits via Paystack Checkout (card, bank, USSD)
+- Double-entry accounting ledger with daily + weekly reconciliation
+- Transfer system with multi-provider fallback and circuit breaker
+- Leave management (types, requests, approval, balances)
+- Loan management with automatic payroll deductions
+- Employee self-service portal (separate auth + layout)
+- Org-specific provider key overrides (AES-256 encrypted)
+- Billing plans (Free/Growth/Enterprise via Paystack)
+- Platform admin (super admin dashboard, org management)
+- Redis cache for cadres, deductions, wallet balance
+- Read replica support for report queries
+- Async payroll processing with status polling
+- Velocity controls and anomaly detection
 
-### Phase 2: Security + Redis (2026-05-28) ✅
+## API: 90+ endpoints across Auth, Employees, Cadres, Payroll, Wallet, Leave, Loans, Transfers, Billing, Platform
 
-Security Hardening:
-- [x] JWT_SECRET required at startup (removed insecure default, fatal on empty)
-- [x] Korapay webhook verification mandatory (fails if signature missing)
-- [x] VFD webhook HMAC-SHA256 verification added (X-VFD-Signature header)
-- [x] Rate limiting: 100 req/sec global, 5 req/sec on auth endpoints (per IP)
-- [x] Environment-specific CORS (config-driven via CORS_ALLOWED_ORIGINS)
-- [x] Request logging middleware (zerolog: method, path, status, latency, IP, request ID)
-- [x] Request ID middleware (X-Request-ID header, crypto/rand UUID)
-- [x] Deep health checks (/health pings DB + Redis, /health/live liveness probe)
+## Frontend: 50+ pages including admin dashboard, employee self-service portal, and public landing page
 
-Redis Infrastructure:
-- [x] Redis 7-alpine in docker-compose with healthcheck
-- [x] Redis client wrapper (internal/platform/cache/redis.go)
-- [x] Cache-aside service with generics (internal/platform/cache/cache.go)
-  - GetOrLoad[T] pattern, nil-safe (degrades gracefully without Redis)
-  - Cadre ListByBusinessID cached (5 min TTL), invalidated on write
-- [x] Asynq job queue (internal/platform/scheduler/asynq.go)
-  - Implements domain.Scheduler interface
-  - Redis-backed, persistent, 3 retries, 10-minute timeout
-  - Falls back to gocron when Redis not configured
+## Tests: Integration (testcontainers), Security, E2E, Load (k6), Frontend (Vitest)
 
-### Files Modified (Phase 2):
-- internal/config/config.go (RedisURL, VFDWebhookSecret, CORSAllowedOrigins)
-- cmd/server/main.go (JWT check, Redis init, cache service, Asynq scheduler)
-- internal/api/middleware/logger.go (zerolog request logging)
-- internal/api/middleware/request_id.go (new: request ID generation)
-- internal/api/middleware/rate_limiter.go (new: IP-based rate limiting)
-- internal/api/router.go (middleware wiring, config CORS, deep health, liveness)
-- internal/api/handler/wallet_handler.go (mandatory Korapay signature)
-- internal/api/handler/vfd_webhook_handler.go (HMAC verification, new constructor)
-- internal/platform/cache/redis.go (new: Redis client wrapper)
-- internal/platform/cache/cache.go (new: cache-aside with generics)
-- internal/platform/scheduler/asynq.go (new: Asynq-based scheduler)
-- internal/service/cadre_service.go (cache integration)
-- docker-compose.yml (Redis service, env vars)
-- go.mod (redis/go-redis, hibiken/asynq, golang.org/x/time)
-
-## ARCHITECTURE DECISIONS
-- Stay monolith (team <10, domain boundaries evolving)
-- Use golang-migrate for ALL migrations (not GORM AutoMigrate)
-- PostgreSQL as primary datastore (ACID required for financial data)
-- Redis for caching (cache-aside) + job queue (Asynq)
-- Graceful degradation: app works without Redis (falls back to gocron, no cache)
-- First microservice candidate: wallet service (when it becomes bottleneck)
-
-### Nigerian Tax Compliance Engine (2026-05-28) ✅
-
-Tax engine at internal/service/tax/ — pure Go, zero dependencies, 13 tests passing:
-- PAYE 2026 brackets (0-25%, NGN 800K tax-free, min wage exempt, rent relief)
-- Pension RSA (8% employee + 10% employer of basic+housing+transport)
-- NHF (2.5% of basic), NSITF (1% of gross, employer-only)
-- EarningComponent.ComponentType for pension base classification
-- Employee statutory fields (TIN, PensionRSAPIN, NHFNumber, AnnualRentPaid)
-- Business statutory config (PensionEnabled, NHFEnabled, NSITFEnabled, PAYEEnabled)
-- Employer costs tracked separately from employee deductions
-- Migration 000012
-
-### Paystack Provider + Enable/Disable (2026-05-28) ✅
-
-Paystack added as third payment provider:
-- internal/platform/paystack/ — client, provider, types (follows Korapay pattern)
-- Implements TransferProvider + BulkTransferrer (100-item batches)
-- Two-step flow: create recipient → initiate transfer
-- HMAC-SHA512 webhook verification (x-paystack-signature)
-- Webhook handler for transfer.success/failed/reversed events
-- 13 tests (7 client + 6 provider) all passing
-
-Enable/disable mechanism:
-- ENABLED_PROVIDERS env var (comma-separated, e.g., "korapay,paystack")
-- Double gate: provider must be enabled AND have API keys configured
-- Default: "korapay,vfd" (backward compatible)
-- Zero providers = warning log, transfers will fail gracefully
-
-Files created:
-- internal/platform/paystack/types.go, client.go, provider.go
-- internal/platform/paystack/client_test.go, provider_test.go
-- internal/api/handler/paystack_webhook_handler.go
-
-Files modified:
-- internal/domain/transfer.go (ProviderPaystack constant)
-- internal/config/config.go (PaystackSecretKey, PaystackBaseURL, EnabledProviders)
-- internal/api/router.go (Paystack webhook route, transferRepo param)
-- cmd/server/main.go (conditional provider registration, parseEnabledProviders)
-- docker-compose.yml (Paystack env vars)
-
-### Reports, Payslips & Business Settings (2026-05-28) ✅
-
-Business Settings API:
-- GET /v1/business/settings — returns business config
-- PATCH /v1/business/settings — toggle pension/NHF/NSITF/PAYE + workflow flags
-- New: business_service.go, business_handler.go, business_request.go
-
-CSV Statutory Reports (internal/service/report/):
-- PAYE Return — employee name, TIN, gross pay, PAYE tax, period
-- Pension Schedule — employee + employer contributions, RSA PIN
-- NHF Schedule — NHF number, contribution amount
-- Bank Schedule — bank details + net pay for bulk transfers
-- 8 tests passing (4 report types + 4 empty payroll edge cases)
-
-PDF Payslip Generation (maroto v2):
-- Individual payslip: earnings, custom deductions, statutory deductions, employer costs, net pay
-- Bulk payslips: ZIP file containing one PDF per employee
-- Layout: company header, employee info, earnings table, deductions, net pay, employer costs
-
-Report API Endpoints:
-- GET /v1/payroll-runs/{runID}/reports/paye — CSV download
-- GET /v1/payroll-runs/{runID}/reports/pension — CSV download
-- GET /v1/payroll-runs/{runID}/reports/nhf — CSV download
-- GET /v1/payroll-runs/{runID}/reports/bank-schedule — CSV download
-- GET /v1/payroll-runs/{runID}/payslips/{employeeID} — PDF download
-- GET /v1/payroll-runs/{runID}/payslips — ZIP of all payslips
-
-### Email System, User Management & Dashboard (2026-05-28) ✅
-
-Configurable SMTP + Hermes Email Templates:
-- EmailService at internal/platform/email/ (replaces hardcoded MailHog)
-- Config-driven: SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASSWORD, SMTP_FROM, APP_URL
-- 7 beautifully designed Hermes templates (payslip, approval, rejection, reset, invite, low balance, confirmation)
-- MIME multipart (HTML + plain text fallback)
-- Works with Brevo (free 300/day), SendGrid, any SMTP provider
-- 7 template tests passing
-
-User Invitation + Password Reset:
-- POST /v1/auth/invite — admin invites operator/approver (sends email)
-- POST /v1/auth/accept-invitation — set password, get JWT
-- POST /v1/auth/forgot-password — sends reset email (doesn't reveal if email exists)
-- POST /v1/auth/reset-password — validates token, sets new password
-- Tokens: crypto/rand 32-byte hex, reset expires in 1 hour
-- Migration 000013: user token fields + partial indexes
-
-Dashboard Summary Endpoint:
-- GET /v1/dashboard — total/active employees, payroll runs, pending approvals, wallet balance, last payroll cost
-
-### Sprint A: Backend Closure (2026-05-28) ✅
-
-6 features shipped:
-1. CSV Employee Import — POST /v1/employees/import (multipart CSV upload, validates, bulk creates)
-2. CI/CD Pipeline — GitHub Actions: go vet, go test -race, go build on push/PR
-3. Audit Trail — audit_logs table, AuditService (async logging), GET /v1/audit-logs (Admin)
-4. Transfer Retry — POST /v1/transfers/{id}/retry (re-executes failed transfers)
-5. Email Notifications — approval confirmation to operators, payslip notification to employees
-6. Payroll Summary Report — GET /v1/payroll-runs/{id}/reports/summary (comprehensive CSV with totals)
-
-Migration 000014: audit_logs table + indexes
-4 new CSV import tests passing (valid, missing headers, invalid data, empty file)
-
-### Sprint B: Production Deployment Prep (2026-05-28) ✅
-- .env.example: all current env vars documented
-- Makefile: vet, test -race, migrate-status, logs, DSN default
-- DEPLOYMENT.md: production checklist, Brevo SMTP, Paystack live keys, Railway setup, backup guide
-
-### Sprint D: Post-Launch Growth (2026-05-29) ✅
-- Bank account verification (Paystack resolve)
-- In-app notification center (CRUD + unread count)
-- SMS notifications (Termii)
-- Employee self-service (RoleEmployee, /v1/me/* endpoints)
-- Loan deductions (EmployeeLoan model, payroll integration)
-- Pro-rata salary (StartDate on employee)
-- Leave management (types, requests, balances, approve/reject)
-- Multi-currency (Business.Currency, Ghana tax engine with SSNIT)
-- Ghana tax engine: 7 PAYE brackets + SSNIT pension (10 tests passing)
-
-### Platform & Billing Layer (2026-05-29) ✅
-- Subscription plans: Free (5 emp), Starter (50 emp, NGN 15K/mo), Pro (unlimited, NGN 50K/mo)
-- Paystack billing integration for PayFlow's own subscription payments
-- Plan enforcement middleware (employee/payroll limits per plan)
-- Suspension middleware (blocks API for suspended orgs)
-- Super admin role (RoleSuperAdmin) with platform-wide access
-- Platform dashboard: MRR, total orgs, signups, plan distribution
-- Org management: list, suspend, activate organizations
-- Billing API: GET /v1/billing/plans, POST /v1/billing/subscribe, etc.
-- Platform API: GET /platform/stats, GET /platform/organizations, etc.
-- Migration 000019: subscription_plans (seeded), subscriptions, invoices tables
-
-### Sprint F: Critical Security + Data Integrity Fixes (2026-05-30) ✅
-- FIXED: PayrollRun/Entry missing employer cost columns in postgres model (data loss bug)
-- FIXED: BVN numeric validation (was accepting letters)
-- FIXED: BVN verify-then-discard approach (store only last4 + verified flag, never in API)
-- FIXED: Business verification status (BVNVerified, RCVerified, IsVerified)
-- FIXED: Silent cadre skip in payroll (now tracked + reported)
-- FIXED: Zero earning components blocked with clear error
-- FIXED: Empty payroll returns error instead of silent success
-- Migration 000020: verification fields + missing payroll columns
-
-### Production Credentials Configured (2026-05-30)
-- Brevo SMTP: smtp-relay.brevo.com (set via Railway dashboard)
-- Paystack sandbox: sk_test_ key configured
-- Redis: added on Railway
-- Enabled provider: paystack (default)
-
-## KNOWN ISSUES
-- payroll_service.go (726 lines) — should split calc vs processing
-- transfer_service.go (580 lines) — should split single vs batch
-- wallet_handler.go (683 lines) — should split wallet vs webhook
-- CI/CD pipeline is empty (GitHub Actions file exists but no content)
-- Email via bare goroutine (no retry, silent failure) — should route through Asynq
-- Cache only on CadreService so far — extend to DeductionRule, WalletBalance
-
-## SCALING ROADMAP
-Phase 1: Quick wins (done) → ~500 orgs
-Phase 2: Security + Redis (done) → ~2,000 orgs
-Phase 3: Read replica + async payroll + circuit breaker → ~5,000 orgs
-Phase 4: Table partitioning + event-driven + service extraction → 5,000+ orgs
-
-## DEPENDENCIES ADDED (Phase 2)
-- github.com/redis/go-redis/v9 — Redis client
-- github.com/hibiken/asynq — Redis-backed job queue
-- golang.org/x/time/rate — Rate limiter (stdlib extension)
-================================================================================
+## Background Jobs: Email delivery, Payroll processing, Daily reconciliation, Weekly provider reconciliation

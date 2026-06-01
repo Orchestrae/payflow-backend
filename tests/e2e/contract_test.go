@@ -1,285 +1,810 @@
+// tests/e2e/contract_test.go
 package e2e_test
 
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
+
+	"payflow/internal/api/middleware"
+	"payflow/internal/domain"
+	"payflow/pkg/utils"
+
+	"github.com/go-chi/chi/v5"
 )
 
-// E2E API contract tests validate that response shapes match expected contracts.
-// These tests use httptest with the actual router for full request/response validation.
+// ============================================================================
+// Test helpers and mock router
+// ============================================================================
 
-// assertJSONShape checks that a JSON response contains expected top-level keys.
-func assertJSONShape(t *testing.T, body []byte, expectedKeys []string) {
-	t.Helper()
-	var result map[string]interface{}
-	if err := json.Unmarshal(body, &result); err != nil {
-		t.Fatalf("Response is not valid JSON: %v", err)
-	}
-	for _, key := range expectedKeys {
-		if _, ok := result[key]; !ok {
-			t.Errorf("Missing expected key %q in response", key)
-		}
-	}
-}
+const e2eJWTSecret = "e2e-test-secret-key-for-contract-tests-minimum-32"
 
-func TestAuthRegisterContract(t *testing.T) {
-	body, _ := json.Marshal(map[string]interface{}{
-		"business_name":      "Test Corp",
-		"email":              "admin@testcorp.com",
-		"password":           "SecurePass123!",
-		"rc_number":          "RC123456",
-		"incorporation_date": "2020-01-15T00:00:00Z",
-		"director_bvn":       "22234567890",
+// buildE2ERouter creates a contract-test router that returns expected JSON shapes.
+// This simulates the API contract without requiring real service dependencies.
+func buildE2ERouter() http.Handler {
+	r := chi.NewRouter()
+	r.Use(middleware.RequestID)
+
+	// --- Auth Routes (public) ---
+	r.Route("/v1/auth", func(r chi.Router) {
+		r.Post("/register", handleMockRegister)
+		r.Post("/login", handleMockLogin)
 	})
 
-	req := httptest.NewRequest("POST", "/v1/auth/register", bytes.NewReader(body))
-	req.Header.Set("Content-Type", "application/json")
+	// --- Protected Routes ---
+	r.Route("/v1", func(r chi.Router) {
+		r.Use(middleware.AuthMiddleware(e2eJWTSecret))
 
-	// Validate request shape is correct
-	var reqBody map[string]interface{}
-	json.NewDecoder(bytes.NewReader(body)).Decode(&reqBody)
+		// Employee CRUD
+		r.Route("/employees", func(r chi.Router) {
+			r.Use(middleware.RoleMiddleware(domain.RoleAdmin, domain.RoleOperator))
+			r.Post("/", handleMockCreateEmployee)
+			r.Get("/", handleMockListEmployees)
+			r.Get("/{employeeID}", handleMockGetEmployee)
+			r.Put("/{employeeID}", handleMockUpdateEmployee)
+			r.Patch("/{employeeID}/deactivate", handleMockDeactivateEmployee)
+		})
 
-	expectedReqKeys := []string{"business_name", "email", "password", "rc_number", "incorporation_date", "director_bvn"}
-	for _, key := range expectedReqKeys {
-		if _, ok := reqBody[key]; !ok {
-			t.Errorf("Missing request key %q", key)
-		}
-	}
-}
+		// Payroll lifecycle
+		r.Route("/payroll-runs", func(r chi.Router) {
+			r.Use(middleware.RoleMiddleware(domain.RoleAdmin, domain.RoleOperator, domain.RoleApprover))
+			r.Post("/", handleMockCreatePayroll)
+			r.Get("/", handleMockListPayrolls)
+			r.Get("/{runID}", handleMockGetPayroll)
+			r.Post("/{runID}/submit", handleMockSubmitPayroll)
+			r.Post("/{runID}/approve", handleMockApprovePayroll)
+			r.Get("/{runID}/status", handleMockGetPayrollStatus)
+		})
 
-func TestAuthLoginContract(t *testing.T) {
-	body, _ := json.Marshal(map[string]string{
-		"email":    "admin@testcorp.com",
-		"password": "SecurePass123!",
+		// Leave management
+		r.Route("/leave", func(r chi.Router) {
+			r.Post("/types", handleMockCreateLeaveType)
+			r.Get("/types", handleMockListLeaveTypes)
+			r.Post("/requests", handleMockSubmitLeaveRequest)
+			r.Post("/requests/{id}/approve", handleMockApproveLeave)
+		})
+
+		// Wallet
+		r.Route("/wallets", func(r chi.Router) {
+			r.Get("/", handleMockGetWallet)
+			r.Get("/balance", handleMockGetBalance)
+		})
 	})
 
-	req := httptest.NewRequest("POST", "/v1/auth/login", bytes.NewReader(body))
-	req.Header.Set("Content-Type", "application/json")
+	return r
+}
 
-	// Expected response shape: { token: string, user: { id, email, role, business_id } }
-	expectedResponse := map[string]interface{}{
-		"token": "jwt-token-here",
+// --- Mock handlers that return contract-compliant JSON ---
+
+func handleMockRegister(w http.ResponseWriter, r *http.Request) {
+	var req map[string]interface{}
+	json.NewDecoder(r.Body).Decode(&req)
+
+	token, _ := utils.GenerateToken("1", "1", "admin", e2eJWTSecret, time.Hour)
+
+	resp := map[string]interface{}{
+		"message": "Business registered successfully",
+		"token":   token,
 		"user": map[string]interface{}{
 			"id":          1,
-			"email":       "admin@testcorp.com",
+			"email":       req["email"],
+			"role":        "admin",
+			"business_id": 1,
+			"is_verified": false,
+			"created_at":  time.Now().Format(time.RFC3339),
+		},
+		"business": map[string]interface{}{
+			"id":       1,
+			"name":     req["business_name"],
+			"currency": "NGN",
+		},
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusCreated)
+	json.NewEncoder(w).Encode(resp)
+}
+
+func handleMockLogin(w http.ResponseWriter, r *http.Request) {
+	var req map[string]interface{}
+	json.NewDecoder(r.Body).Decode(&req)
+
+	token, _ := utils.GenerateToken("1", "1", "admin", e2eJWTSecret, time.Hour)
+
+	resp := map[string]interface{}{
+		"token": token,
+		"user": map[string]interface{}{
+			"id":          1,
+			"email":       req["email"],
 			"role":        "admin",
 			"business_id": 1,
 		},
 	}
-
-	responseBytes, _ := json.Marshal(expectedResponse)
-	assertJSONShape(t, responseBytes, []string{"token", "user"})
-
-	_ = req
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(resp)
 }
 
-func TestEmployeeCRUDContract(t *testing.T) {
-	t.Run("create employee request shape", func(t *testing.T) {
-		body, _ := json.Marshal(map[string]interface{}{
-			"cadre_id":            1,
-			"full_name":           "John Doe",
-			"email":               "john@testcorp.com",
-			"bank_name":           "Access Bank",
-			"bank_code":           "044",
-			"bank_account_number": "0123456789",
-		})
+func handleMockCreateEmployee(w http.ResponseWriter, r *http.Request) {
+	var req map[string]interface{}
+	json.NewDecoder(r.Body).Decode(&req)
 
-		var reqBody map[string]interface{}
-		json.Unmarshal(body, &reqBody)
-
-		expectedKeys := []string{"cadre_id", "full_name", "email", "bank_name", "bank_code", "bank_account_number"}
-		for _, key := range expectedKeys {
-			if _, ok := reqBody[key]; !ok {
-				t.Errorf("Missing create employee request key %q", key)
-			}
-		}
-	})
-
-	t.Run("employee response shape", func(t *testing.T) {
-		expectedEmployee := map[string]interface{}{
-			"id":                    1,
-			"business_id":           1,
-			"cadre_id":              1,
-			"full_name":             "John Doe",
-			"email":                 "john@testcorp.com",
-			"bank_name":             "Access Bank",
-			"bank_code":             "044",
-			"bank_account_number":   "0123456789",
-			"is_active":             true,
-			"bank_account_verified": false,
-		}
-
-		responseBytes, _ := json.Marshal(expectedEmployee)
-		assertJSONShape(t, responseBytes, []string{"id", "business_id", "full_name", "email", "is_active"})
-	})
+	resp := map[string]interface{}{
+		"data": map[string]interface{}{
+			"id":                  1,
+			"business_id":        1,
+			"cadre_id":           req["cadre_id"],
+			"full_name":          req["full_name"],
+			"email":              req["email"],
+			"bank_name":          req["bank_name"],
+			"bank_code":          req["bank_code"],
+			"bank_account_number": req["bank_account_number"],
+			"is_active":          true,
+			"created_at":         time.Now().Format(time.RFC3339),
+			"updated_at":         time.Now().Format(time.RFC3339),
+		},
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusCreated)
+	json.NewEncoder(w).Encode(resp)
 }
 
-func TestPayrollLifecycleContract(t *testing.T) {
-	t.Run("create payroll request", func(t *testing.T) {
-		body, _ := json.Marshal(map[string]interface{}{
-			"period": "2026-06",
-		})
+func handleMockListEmployees(w http.ResponseWriter, r *http.Request) {
+	resp := map[string]interface{}{
+		"data": []map[string]interface{}{
+			{
+				"id":         1,
+				"full_name":  "John Doe",
+				"email":      "john@test.com",
+				"is_active":  true,
+				"cadre_id":   1,
+				"created_at": time.Now().Format(time.RFC3339),
+			},
+		},
+		"total": 1,
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(resp)
+}
 
-		req := httptest.NewRequest("POST", "/v1/payroll-runs", bytes.NewReader(body))
-		req.Header.Set("Content-Type", "application/json")
+func handleMockGetEmployee(w http.ResponseWriter, r *http.Request) {
+	resp := map[string]interface{}{
+		"data": map[string]interface{}{
+			"id":                  1,
+			"business_id":        1,
+			"full_name":          "John Doe",
+			"email":              "john@test.com",
+			"is_active":          true,
+			"cadre_id":           1,
+			"bank_name":          "Test Bank",
+			"bank_code":          "058",
+			"bank_account_number": "1234567890",
+			"created_at":         time.Now().Format(time.RFC3339),
+			"updated_at":         time.Now().Format(time.RFC3339),
+		},
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(resp)
+}
 
-		// Response should include payroll run with entries
-		expectedResponse := map[string]interface{}{
+func handleMockUpdateEmployee(w http.ResponseWriter, r *http.Request) {
+	var req map[string]interface{}
+	json.NewDecoder(r.Body).Decode(&req)
+
+	resp := map[string]interface{}{
+		"data": map[string]interface{}{
+			"id":         1,
+			"full_name":  req["full_name"],
+			"email":      req["email"],
+			"is_active":  true,
+			"updated_at": time.Now().Format(time.RFC3339),
+		},
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(resp)
+}
+
+func handleMockDeactivateEmployee(w http.ResponseWriter, r *http.Request) {
+	resp := map[string]interface{}{
+		"message": "Employee deactivated successfully",
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(resp)
+}
+
+func handleMockCreatePayroll(w http.ResponseWriter, r *http.Request) {
+	resp := map[string]interface{}{
+		"data": map[string]interface{}{
 			"id":               1,
+			"business_id":     1,
+			"period":          "2026-06-01T00:00:00Z",
+			"status":          "draft",
+			"total_gross_pay": 50000000,
+			"total_deductions": 10000000,
+			"total_net_pay":   40000000,
+			"entries":         []interface{}{},
+			"created_at":      time.Now().Format(time.RFC3339),
+		},
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusCreated)
+	json.NewEncoder(w).Encode(resp)
+}
+
+func handleMockListPayrolls(w http.ResponseWriter, r *http.Request) {
+	resp := map[string]interface{}{
+		"data": []map[string]interface{}{
+			{
+				"id":              1,
+				"business_id":    1,
+				"period":         "2026-06-01T00:00:00Z",
+				"status":         "draft",
+				"total_net_pay":  40000000,
+				"created_at":     time.Now().Format(time.RFC3339),
+			},
+		},
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(resp)
+}
+
+func handleMockGetPayroll(w http.ResponseWriter, r *http.Request) {
+	resp := map[string]interface{}{
+		"data": map[string]interface{}{
+			"id":               1,
+			"business_id":     1,
+			"period":          "2026-06-01T00:00:00Z",
+			"status":          "draft",
+			"total_gross_pay": 50000000,
+			"total_deductions": 10000000,
+			"total_net_pay":   40000000,
+			"entries":         []interface{}{},
+		},
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(resp)
+}
+
+func handleMockSubmitPayroll(w http.ResponseWriter, r *http.Request) {
+	resp := map[string]interface{}{
+		"data": map[string]interface{}{
+			"id":     1,
+			"status": "pending_approval",
+		},
+		"message": "Payroll submitted for approval",
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(resp)
+}
+
+func handleMockApprovePayroll(w http.ResponseWriter, r *http.Request) {
+	resp := map[string]interface{}{
+		"data": map[string]interface{}{
+			"id":     1,
+			"status": "approved",
+		},
+		"message": "Payroll approved",
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(resp)
+}
+
+func handleMockGetPayrollStatus(w http.ResponseWriter, r *http.Request) {
+	resp := map[string]interface{}{
+		"data": map[string]interface{}{
+			"id":     1,
+			"status": "approved",
+		},
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(resp)
+}
+
+func handleMockCreateLeaveType(w http.ResponseWriter, r *http.Request) {
+	var req map[string]interface{}
+	json.NewDecoder(r.Body).Decode(&req)
+
+	resp := map[string]interface{}{
+		"data": map[string]interface{}{
+			"id":                1,
 			"business_id":      1,
-			"period":           "2026-06-01T00:00:00Z",
-			"status":           "draft",
-			"total_gross_pay":  23000000,
-			"total_deductions": 3000000,
-			"total_net_pay":    20000000,
-			"entries":          []interface{}{},
+			"name":             req["name"],
+			"default_days":     req["default_days"],
+			"requires_approval": true,
+		},
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusCreated)
+	json.NewEncoder(w).Encode(resp)
+}
+
+func handleMockListLeaveTypes(w http.ResponseWriter, r *http.Request) {
+	resp := map[string]interface{}{
+		"data": []map[string]interface{}{
+			{
+				"id":            1,
+				"name":          "Annual Leave",
+				"default_days":  20,
+				"requires_approval": true,
+			},
+		},
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(resp)
+}
+
+func handleMockSubmitLeaveRequest(w http.ResponseWriter, r *http.Request) {
+	var req map[string]interface{}
+	json.NewDecoder(r.Body).Decode(&req)
+
+	resp := map[string]interface{}{
+		"data": map[string]interface{}{
+			"id":            1,
+			"employee_id":   req["employee_id"],
+			"leave_type_id": req["leave_type_id"],
+			"start_date":    req["start_date"],
+			"end_date":      req["end_date"],
+			"days":          req["days"],
+			"reason":        req["reason"],
+			"status":        "pending",
+		},
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusCreated)
+	json.NewEncoder(w).Encode(resp)
+}
+
+func handleMockApproveLeave(w http.ResponseWriter, r *http.Request) {
+	resp := map[string]interface{}{
+		"message": "Leave request approved",
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(resp)
+}
+
+func handleMockGetWallet(w http.ResponseWriter, r *http.Request) {
+	resp := map[string]interface{}{
+		"data": map[string]interface{}{
+			"id":                       1,
+			"business_id":             1,
+			"balance":                 5000000,
+			"locked_balance":          0,
+			"currency":                "NGN",
+			"virtual_account_number":  "1234567890",
+			"virtual_account_bank_name": "Test Bank",
+			"virtual_account_status":  "active",
+			"provider":                "korapay",
+		},
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(resp)
+}
+
+func handleMockGetBalance(w http.ResponseWriter, r *http.Request) {
+	resp := map[string]interface{}{
+		"data": map[string]interface{}{
+			"balance":           5000000,
+			"available_balance": 5000000,
+			"currency":          "NGN",
+		},
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(resp)
+}
+
+// ============================================================================
+// Contract validation helpers
+// ============================================================================
+
+func requireField(t *testing.T, data map[string]interface{}, field string) {
+	t.Helper()
+	if _, ok := data[field]; !ok {
+		t.Errorf("missing required field %q in response", field)
+	}
+}
+
+func requireFieldType(t *testing.T, data map[string]interface{}, field string, expectedType string) {
+	t.Helper()
+	val, ok := data[field]
+	if !ok {
+		t.Errorf("missing required field %q", field)
+		return
+	}
+	switch expectedType {
+	case "string":
+		if _, ok := val.(string); !ok {
+			t.Errorf("field %q: expected string, got %T", field, val)
+		}
+	case "number":
+		if _, ok := val.(float64); !ok {
+			t.Errorf("field %q: expected number, got %T", field, val)
+		}
+	case "bool":
+		if _, ok := val.(bool); !ok {
+			t.Errorf("field %q: expected bool, got %T", field, val)
+		}
+	case "array":
+		if _, ok := val.([]interface{}); !ok {
+			t.Errorf("field %q: expected array, got %T", field, val)
+		}
+	case "object":
+		if _, ok := val.(map[string]interface{}); !ok {
+			t.Errorf("field %q: expected object, got %T", field, val)
+		}
+	}
+}
+
+func generateE2EToken(userID, businessID uint, role domain.UserRole) string {
+	token, _ := utils.GenerateToken(
+		fmt.Sprintf("%d", userID),
+		fmt.Sprintf("%d", businessID),
+		string(role),
+		e2eJWTSecret,
+		time.Hour,
+	)
+	return token
+}
+
+func doRequest(t *testing.T, server *httptest.Server, method, path, token string, body interface{}) (int, map[string]interface{}) {
+	t.Helper()
+
+	var reqBody io.Reader
+	if body != nil {
+		b, _ := json.Marshal(body)
+		reqBody = bytes.NewReader(b)
+	}
+
+	req, _ := http.NewRequest(method, server.URL+path, reqBody)
+	req.Header.Set("Content-Type", "application/json")
+	if token != "" {
+		req.Header.Set("Authorization", "Bearer "+token)
+	}
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("request %s %s failed: %v", method, path, err)
+	}
+	defer resp.Body.Close()
+
+	respBody, _ := io.ReadAll(resp.Body)
+	var result map[string]interface{}
+	json.Unmarshal(respBody, &result)
+
+	return resp.StatusCode, result
+}
+
+// ============================================================================
+// E2E Contract Tests
+// ============================================================================
+
+func TestAuthFlow(t *testing.T) {
+	server := httptest.NewServer(buildE2ERouter())
+	defer server.Close()
+
+	t.Run("Register", func(t *testing.T) {
+		registerBody := map[string]interface{}{
+			"business_name":     "Contract Test Corp",
+			"email":             "admin@contracttest.com",
+			"password":          "SecureP@ss123",
+			"rc_number":         "RC123456",
+			"incorporation_date": "2020-01-01T00:00:00Z",
+			"director_bvn":      "12345678901",
 		}
 
-		responseBytes, _ := json.Marshal(expectedResponse)
-		assertJSONShape(t, responseBytes, []string{"id", "status", "total_gross_pay", "total_net_pay", "entries"})
+		status, result := doRequest(t, server, "POST", "/v1/auth/register", "", registerBody)
+
+		if status != http.StatusCreated {
+			t.Fatalf("expected 201, got %d", status)
+		}
+
+		// Validate response contract
+		requireField(t, result, "token")
+		requireField(t, result, "user")
+		requireField(t, result, "message")
+		requireFieldType(t, result, "token", "string")
+		requireFieldType(t, result, "user", "object")
+
+		user := result["user"].(map[string]interface{})
+		requireField(t, user, "id")
+		requireField(t, user, "email")
+		requireField(t, user, "role")
+		requireField(t, user, "business_id")
 	})
 
-	t.Run("submit returns 202", func(t *testing.T) {
-		// Submit should return 202 Accepted with job tracking info
-		expectedResponse := map[string]interface{}{
-			"payroll_run": map[string]interface{}{},
-			"job_id":      "",
-			"status":      "pending_approval",
-			"message":     "Payroll submitted for processing",
+	t.Run("Login", func(t *testing.T) {
+		loginBody := map[string]interface{}{
+			"email":    "admin@contracttest.com",
+			"password": "SecureP@ss123",
 		}
 
-		responseBytes, _ := json.Marshal(expectedResponse)
-		assertJSONShape(t, responseBytes, []string{"payroll_run", "status", "message"})
+		status, result := doRequest(t, server, "POST", "/v1/auth/login", "", loginBody)
+
+		if status != http.StatusOK {
+			t.Fatalf("expected 200, got %d", status)
+		}
+
+		// Validate response contract
+		requireField(t, result, "token")
+		requireField(t, result, "user")
+		requireFieldType(t, result, "token", "string")
+
+		user := result["user"].(map[string]interface{})
+		requireField(t, user, "id")
+		requireField(t, user, "email")
+		requireField(t, user, "role")
 	})
 }
 
-func TestLeaveManagementContract(t *testing.T) {
-	t.Run("create leave type", func(t *testing.T) {
-		body, _ := json.Marshal(map[string]interface{}{
-			"name":              "Annual Leave",
-			"default_days":      21,
-			"requires_approval": true,
-		})
+func TestEmployeeCRUD(t *testing.T) {
+	server := httptest.NewServer(buildE2ERouter())
+	defer server.Close()
 
-		var reqBody map[string]interface{}
-		json.Unmarshal(body, &reqBody)
+	token := generateE2EToken(1, 1, domain.RoleAdmin)
 
-		for _, key := range []string{"name", "default_days", "requires_approval"} {
-			if _, ok := reqBody[key]; !ok {
-				t.Errorf("Missing leave type request key %q", key)
-			}
+	t.Run("Create", func(t *testing.T) {
+		empBody := map[string]interface{}{
+			"full_name":           "Jane Smith",
+			"email":               "jane@test.com",
+			"cadre_id":            1,
+			"bank_name":           "GTBank",
+			"bank_code":           "058",
+			"bank_account_number": "0123456789",
+		}
+
+		status, result := doRequest(t, server, "POST", "/v1/employees", token, empBody)
+
+		if status != http.StatusCreated {
+			t.Fatalf("expected 201, got %d", status)
+		}
+
+		data := result["data"].(map[string]interface{})
+		requireField(t, data, "id")
+		requireField(t, data, "full_name")
+		requireField(t, data, "email")
+		requireField(t, data, "cadre_id")
+		requireField(t, data, "is_active")
+		requireField(t, data, "created_at")
+	})
+
+	t.Run("List", func(t *testing.T) {
+		status, result := doRequest(t, server, "GET", "/v1/employees", token, nil)
+
+		if status != http.StatusOK {
+			t.Fatalf("expected 200, got %d", status)
+		}
+
+		requireField(t, result, "data")
+		requireFieldType(t, result, "data", "array")
+	})
+
+	t.Run("GetByID", func(t *testing.T) {
+		status, result := doRequest(t, server, "GET", "/v1/employees/1", token, nil)
+
+		if status != http.StatusOK {
+			t.Fatalf("expected 200, got %d", status)
+		}
+
+		data := result["data"].(map[string]interface{})
+		requireField(t, data, "id")
+		requireField(t, data, "full_name")
+		requireField(t, data, "email")
+		requireField(t, data, "bank_name")
+		requireField(t, data, "bank_account_number")
+	})
+
+	t.Run("Update", func(t *testing.T) {
+		updateBody := map[string]interface{}{
+			"full_name": "Jane Updated Smith",
+			"email":     "jane.updated@test.com",
+		}
+
+		status, result := doRequest(t, server, "PUT", "/v1/employees/1", token, updateBody)
+
+		if status != http.StatusOK {
+			t.Fatalf("expected 200, got %d", status)
+		}
+
+		data := result["data"].(map[string]interface{})
+		requireField(t, data, "full_name")
+		requireField(t, data, "updated_at")
+	})
+
+	t.Run("Deactivate", func(t *testing.T) {
+		status, result := doRequest(t, server, "PATCH", "/v1/employees/1/deactivate", token, nil)
+
+		if status != http.StatusOK {
+			t.Fatalf("expected 200, got %d", status)
+		}
+
+		requireField(t, result, "message")
+	})
+}
+
+func TestPayrollLifecycle(t *testing.T) {
+	server := httptest.NewServer(buildE2ERouter())
+	defer server.Close()
+
+	token := generateE2EToken(1, 1, domain.RoleAdmin)
+
+	t.Run("Create", func(t *testing.T) {
+		payrollBody := map[string]interface{}{
+			"period":      "2026-06-01T00:00:00Z",
+			"adjustments": map[string]interface{}{},
+		}
+
+		status, result := doRequest(t, server, "POST", "/v1/payroll-runs", token, payrollBody)
+
+		if status != http.StatusCreated {
+			t.Fatalf("expected 201, got %d", status)
+		}
+
+		data := result["data"].(map[string]interface{})
+		requireField(t, data, "id")
+		requireField(t, data, "status")
+		requireField(t, data, "total_gross_pay")
+		requireField(t, data, "total_net_pay")
+		requireFieldType(t, data, "status", "string")
+
+		if data["status"] != "draft" {
+			t.Errorf("expected status 'draft', got %v", data["status"])
 		}
 	})
 
-	t.Run("submit leave request", func(t *testing.T) {
-		body, _ := json.Marshal(map[string]interface{}{
+	t.Run("Submit", func(t *testing.T) {
+		status, result := doRequest(t, server, "POST", "/v1/payroll-runs/1/submit", token, nil)
+
+		if status != http.StatusOK {
+			t.Fatalf("expected 200, got %d", status)
+		}
+
+		data := result["data"].(map[string]interface{})
+		if data["status"] != "pending_approval" {
+			t.Errorf("expected status 'pending_approval', got %v", data["status"])
+		}
+	})
+
+	t.Run("Approve", func(t *testing.T) {
+		status, result := doRequest(t, server, "POST", "/v1/payroll-runs/1/approve", token, nil)
+
+		if status != http.StatusOK {
+			t.Fatalf("expected 200, got %d", status)
+		}
+
+		data := result["data"].(map[string]interface{})
+		if data["status"] != "approved" {
+			t.Errorf("expected status 'approved', got %v", data["status"])
+		}
+	})
+
+	t.Run("CheckStatus", func(t *testing.T) {
+		status, result := doRequest(t, server, "GET", "/v1/payroll-runs/1/status", token, nil)
+
+		if status != http.StatusOK {
+			t.Fatalf("expected 200, got %d", status)
+		}
+
+		data := result["data"].(map[string]interface{})
+		requireField(t, data, "id")
+		requireField(t, data, "status")
+	})
+}
+
+func TestLeaveManagement(t *testing.T) {
+	server := httptest.NewServer(buildE2ERouter())
+	defer server.Close()
+
+	token := generateE2EToken(1, 1, domain.RoleAdmin)
+
+	t.Run("CreateLeaveType", func(t *testing.T) {
+		body := map[string]interface{}{
+			"name":              "Annual Leave",
+			"default_days":      20,
+			"requires_approval": true,
+		}
+
+		status, result := doRequest(t, server, "POST", "/v1/leave/types", token, body)
+
+		if status != http.StatusCreated {
+			t.Fatalf("expected 201, got %d", status)
+		}
+
+		data := result["data"].(map[string]interface{})
+		requireField(t, data, "id")
+		requireField(t, data, "name")
+		requireField(t, data, "default_days")
+		requireField(t, data, "requires_approval")
+	})
+
+	t.Run("ListLeaveTypes", func(t *testing.T) {
+		status, result := doRequest(t, server, "GET", "/v1/leave/types", token, nil)
+
+		if status != http.StatusOK {
+			t.Fatalf("expected 200, got %d", status)
+		}
+
+		requireField(t, result, "data")
+		requireFieldType(t, result, "data", "array")
+	})
+
+	t.Run("SubmitLeaveRequest", func(t *testing.T) {
+		body := map[string]interface{}{
 			"employee_id":   1,
 			"leave_type_id": 1,
-			"start_date":    "2026-07-01",
-			"end_date":      "2026-07-05",
+			"start_date":    "2026-07-01T00:00:00Z",
+			"end_date":      "2026-07-10T00:00:00Z",
+			"days":          7,
 			"reason":        "Family vacation",
-		})
-
-		var reqBody map[string]interface{}
-		json.Unmarshal(body, &reqBody)
-
-		for _, key := range []string{"employee_id", "leave_type_id", "start_date", "end_date", "reason"} {
-			if _, ok := reqBody[key]; !ok {
-				t.Errorf("Missing leave request key %q", key)
-			}
 		}
+
+		status, result := doRequest(t, server, "POST", "/v1/leave/requests", token, body)
+
+		if status != http.StatusCreated {
+			t.Fatalf("expected 201, got %d", status)
+		}
+
+		data := result["data"].(map[string]interface{})
+		requireField(t, data, "id")
+		requireField(t, data, "employee_id")
+		requireField(t, data, "leave_type_id")
+		requireField(t, data, "status")
+
+		if data["status"] != "pending" {
+			t.Errorf("expected status 'pending', got %v", data["status"])
+		}
+	})
+
+	t.Run("ApproveLeaveRequest", func(t *testing.T) {
+		status, result := doRequest(t, server, "POST", "/v1/leave/requests/1/approve", token, nil)
+
+		if status != http.StatusOK {
+			t.Fatalf("expected 200, got %d", status)
+		}
+
+		requireField(t, result, "message")
 	})
 }
 
-func TestWalletContract(t *testing.T) {
-	t.Run("wallet response shape", func(t *testing.T) {
-		expectedWallet := map[string]interface{}{
-			"id":                       1,
-			"business_id":              1,
-			"balance":                  5000000,
-			"locked_balance":           0,
-			"currency":                 "NGN",
-			"virtual_account_number":   "0123456789",
-			"virtual_account_bank_code": "035",
-			"provider":                  "korapay",
+func TestWalletOperations(t *testing.T) {
+	server := httptest.NewServer(buildE2ERouter())
+	defer server.Close()
+
+	token := generateE2EToken(1, 1, domain.RoleAdmin)
+
+	t.Run("GetWallet", func(t *testing.T) {
+		status, result := doRequest(t, server, "GET", "/v1/wallets", token, nil)
+
+		if status != http.StatusOK {
+			t.Fatalf("expected 200, got %d", status)
 		}
 
-		responseBytes, _ := json.Marshal(expectedWallet)
-		assertJSONShape(t, responseBytes, []string{"id", "business_id", "balance", "currency"})
+		data := result["data"].(map[string]interface{})
+		requireField(t, data, "id")
+		requireField(t, data, "business_id")
+		requireField(t, data, "balance")
+		requireField(t, data, "currency")
+		requireField(t, data, "virtual_account_number")
+		requireField(t, data, "virtual_account_status")
+		requireField(t, data, "provider")
+		requireFieldType(t, data, "balance", "number")
+		requireFieldType(t, data, "currency", "string")
 	})
-}
 
-func TestHealthEndpointContract(t *testing.T) {
-	req := httptest.NewRequest("GET", "/health", nil)
-	_ = req
+	t.Run("CheckBalance", func(t *testing.T) {
+		status, result := doRequest(t, server, "GET", "/v1/wallets/balance", token, nil)
 
-	expectedResponse := map[string]interface{}{
-		"status":   "healthy",
-		"message":  "Server is running. All systems operational.",
-		"server":   "ok",
-		"database": map[string]interface{}{"status": "ok"},
-	}
-
-	responseBytes, _ := json.Marshal(expectedResponse)
-	assertJSONShape(t, responseBytes, []string{"status", "message", "server", "database"})
-}
-
-func TestDashboardContract(t *testing.T) {
-	expectedResponse := map[string]interface{}{
-		"total_employees":   10,
-		"active_employees":  8,
-		"payroll_runs":      5,
-		"pending_approvals": 1,
-		"wallet_balance":    5000000,
-		"last_payroll_cost": 2300000,
-	}
-
-	responseBytes, _ := json.Marshal(expectedResponse)
-	assertJSONShape(t, responseBytes, []string{
-		"total_employees", "active_employees", "payroll_runs",
-		"pending_approvals", "wallet_balance", "last_payroll_cost",
-	})
-}
-
-func TestBillingContract(t *testing.T) {
-	t.Run("plans response shape", func(t *testing.T) {
-		expectedPlan := map[string]interface{}{
-			"id":               1,
-			"name":             "Free",
-			"tier":             "free",
-			"price_monthly":    0,
-			"max_employees":    10,
-			"max_payroll_runs": 3,
-			"features":         "Basic payroll",
-			"is_active":        true,
+		if status != http.StatusOK {
+			t.Fatalf("expected 200, got %d", status)
 		}
 
-		responseBytes, _ := json.Marshal(expectedPlan)
-		assertJSONShape(t, responseBytes, []string{"id", "name", "tier", "price_monthly", "max_employees"})
+		data := result["data"].(map[string]interface{})
+		requireField(t, data, "balance")
+		requireField(t, data, "available_balance")
+		requireField(t, data, "currency")
+		requireFieldType(t, data, "balance", "number")
+		requireFieldType(t, data, "available_balance", "number")
 	})
-}
-
-func TestStatusCodeConventions(t *testing.T) {
-	// Document expected status codes for key operations
-	conventions := map[string]int{
-		"GET /health":                          http.StatusOK,
-		"POST /v1/auth/register":               http.StatusCreated,
-		"POST /v1/auth/login":                  http.StatusOK,
-		"GET /v1/employees":                    http.StatusOK,
-		"POST /v1/employees":                   http.StatusCreated,
-		"POST /v1/payroll-runs/{id}/submit":    http.StatusAccepted,
-		"DELETE /v1/deduction-rules/{id}":      http.StatusNoContent,
-		"GET /v1/employees/999 (not found)":    http.StatusNotFound,
-		"GET /v1/dashboard (no auth)":          http.StatusUnauthorized,
-		"GET /platform/stats (non super admin)": http.StatusForbidden,
-	}
-
-	for endpoint, expectedCode := range conventions {
-		if expectedCode < 100 || expectedCode > 599 {
-			t.Errorf("Invalid expected status code %d for %s", expectedCode, endpoint)
-		}
-	}
 }
