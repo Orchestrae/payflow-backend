@@ -100,6 +100,19 @@ type BVNData struct {
 	BVN         string `json:"bvn"`
 }
 
+// BalanceResponse represents the Paystack balance endpoint response.
+type BalanceResponse struct {
+	Status  bool           `json:"status"`
+	Message string         `json:"message"`
+	Data    []BalanceData  `json:"data"`
+}
+
+// BalanceData contains balance details for a single currency.
+type BalanceData struct {
+	Currency string `json:"currency"`
+	Balance  int64  `json:"balance"`
+}
+
 // WebhookPayload represents a Paystack webhook event payload.
 type WebhookPayload struct {
 	Event string                 `json:"event"`

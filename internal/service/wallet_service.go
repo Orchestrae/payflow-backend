@@ -9,6 +9,7 @@ import (
 	"github.com/rs/zerolog/log"
 
 	"payflow/internal/domain"
+	"payflow/internal/platform/cache"
 	"payflow/internal/repository"
 	"payflow/internal/service/provider"
 )
@@ -53,6 +54,7 @@ type walletService struct {
 	virtualAccountProvider provider.VirtualAccountProvider
 	virtualAccountBalancer provider.VirtualAccountBalancer
 	ledgerSvc              LedgerService
+	cache                  *cache.CacheService
 }
 
 // NewWalletService creates a new wallet service
@@ -78,6 +80,21 @@ func NewWalletService(
 // SetLedgerService injects the ledger service (breaks circular init dependency).
 func (s *walletService) SetLedgerService(ls LedgerService) {
 	s.ledgerSvc = ls
+}
+
+// SetCacheService injects the cache service for wallet balance caching.
+func (s *walletService) SetCacheService(cs *cache.CacheService) {
+	s.cache = cs
+}
+
+func walletBalanceCacheKey(businessID uint) string {
+	return fmt.Sprintf("wallet:balance:%d", businessID)
+}
+
+func (s *walletService) invalidateBalanceCache(ctx context.Context, businessID uint) {
+	if s.cache != nil {
+		s.cache.Invalidate(ctx, walletBalanceCacheKey(businessID))
+	}
 }
 
 // CreateVirtualAccount creates a virtual account for a business
@@ -144,13 +161,15 @@ func (s *walletService) GetWallet(ctx context.Context, businessID uint) (*domain
 	return wallet, nil
 }
 
-// GetBalance gets the current balance for a business wallet
+// GetBalance gets the current balance for a business wallet (cached 30s, invalidated on deposit/withdrawal).
 func (s *walletService) GetBalance(ctx context.Context, businessID uint) (int64, error) {
-	wallet, err := s.walletRepo.FindByBusinessID(ctx, businessID)
-	if err != nil {
-		return 0, fmt.Errorf("failed to get wallet balance: %w", err)
-	}
-	return wallet.Balance, nil
+	return cache.GetOrLoad(s.cache, ctx, walletBalanceCacheKey(businessID), 30*time.Second, func() (int64, error) {
+		wallet, err := s.walletRepo.FindByBusinessID(ctx, businessID)
+		if err != nil {
+			return 0, fmt.Errorf("failed to get wallet balance: %w", err)
+		}
+		return wallet.Balance, nil
+	})
 }
 
 // CheckBalance checks if a business has sufficient balance for a transaction
@@ -246,6 +265,7 @@ func (s *walletService) RecordDeposit(ctx context.Context, businessID uint, noti
 		}
 	}
 
+	s.invalidateBalanceCache(ctx, businessID)
 	return nil
 }
 
@@ -313,6 +333,7 @@ func (s *walletService) RecordWithdrawal(ctx context.Context, businessID uint, t
 		}
 	}
 
+	s.invalidateBalanceCache(ctx, businessID)
 	return nil
 }
 

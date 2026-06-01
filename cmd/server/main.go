@@ -153,7 +153,7 @@ func main() {
 
 	employeeSvc := service.NewEmployeeService(employeeRepo, cadreRepo, service.WithVerificationService(verificationSvc))
 	cadreSvc := service.NewCadreService(cadreRepo, cacheSvc)
-	deductionRuleSvc := service.NewDeductionRuleService(deductionRuleRepo)
+	deductionRuleSvc := service.NewDeductionRuleService(deductionRuleRepo, cacheSvc)
 	webhookSvc := vfd2.NewVFDWebhookService(webhookRepo, businessRepo, vfdSvc, txer)
 	transferSvc := vfd2.NewVFDTransferService(transferRepo, vfdSvc, txer)
 
@@ -252,14 +252,26 @@ func main() {
 		ws.SetLedgerService(ledgerSvc)
 		log.Info().Msg("Ledger service wired into wallet service")
 	}
+	if ws, ok := walletSvc.(interface{ SetCacheService(*cache.CacheService) }); ok {
+		ws.SetCacheService(cacheSvc)
+		log.Info().Msg("Cache service wired into wallet service")
+	}
 	log.Info().Msg("Wallet service initialized")
 
 	// Initialize account holder service with account holder provider
 	accountHolderSvc := service.NewAccountHolderService(korapayAccountHolderProvider)
 	log.Info().Msg("Account holder service initialized")
 
-	// Reconciliation service (daily balance checks)
-	reconciliationSvc := service.NewReconciliationService(walletRepo, ledgerSvc)
+	// Reconciliation service (daily balance checks + weekly provider reconciliation)
+	reconciliationOpts := []service.ReconciliationOption{}
+	if verificationPaystackClient != nil {
+		reconciliationOpts = append(reconciliationOpts, service.WithPaystackClient(verificationPaystackClient))
+	}
+	reconciliationOpts = append(reconciliationOpts,
+		service.WithNotificationSvc(notificationSvc),
+		service.WithUserRepo(userRepo),
+	)
+	reconciliationSvc := service.NewReconciliationService(walletRepo, ledgerSvc, reconciliationOpts...)
 	// Start daily reconciliation as background job (runs every 24 hours)
 	go func() {
 		// Wait 1 minute after startup, then run every 24 hours
@@ -272,6 +284,19 @@ func main() {
 		}
 	}()
 	log.Info().Msg("Daily reconciliation job scheduled")
+
+	// Start weekly provider reconciliation as background job (runs every 7 days)
+	go func() {
+		// Wait 5 minutes after startup, then run every 7 days
+		time.Sleep(5 * time.Minute)
+		for {
+			if _, err := reconciliationSvc.RunProviderReconciliation(context.Background()); err != nil {
+				log.Error().Err(err).Msg("Weekly provider reconciliation failed")
+			}
+			time.Sleep(7 * 24 * time.Hour)
+		}
+	}()
+	log.Info().Msg("Weekly provider reconciliation job scheduled")
 
 	// Wire wallet service into transfer service for balance checking
 	if transferSvcWithWallet, ok := transferSvcNew.(interface{ SetWalletService(service.WalletService) }); ok {
@@ -342,7 +367,7 @@ func main() {
 		log.Info().Msg("Org provider key service wired into transfer service")
 	}
 
-	router := api.NewRouter(cfg, db, redisClient, authSvc, employeeSvc, cadreSvc, deductionRuleSvc, payrollSvc, webhookSvc, transferSvc, transferSvcNew, walletSvc, businessSvc, dashboardSvc, auditSvc, notifCenterSvc, verificationSvc, loanSvc, leaveSvc, ledgerSvc, platformSettingsSvc, orgProviderSettingsSvc, billingSvc, platformSvc, accountHolderSvc, koraClient, newTransferRepo, businessRepo)
+	router := api.NewRouter(cfg, db, redisClient, authSvc, employeeSvc, cadreSvc, deductionRuleSvc, payrollSvc, webhookSvc, transferSvc, transferSvcNew, walletSvc, businessSvc, dashboardSvc, auditSvc, notifCenterSvc, verificationSvc, loanSvc, leaveSvc, ledgerSvc, platformSettingsSvc, orgProviderSettingsSvc, billingSvc, platformSvc, accountHolderSvc, reconciliationSvc, koraClient, newTransferRepo, businessRepo)
 	log.Info().Msg("API router initialized")
 
 	server := &http.Server{

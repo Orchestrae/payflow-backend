@@ -20,6 +20,7 @@ type UserRepository interface {
 	FindByEmailVerificationToken(ctx context.Context, token string) (*domain.User, error)
 	Update(ctx context.Context, user *domain.User) error
 	Delete(ctx context.Context, id uint) error
+	FindByRole(ctx context.Context, role domain.UserRole) ([]*domain.User, error)
 	WithTx(tx Transactioner) UserRepository
 }
 

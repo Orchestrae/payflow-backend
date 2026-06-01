@@ -129,6 +129,22 @@ func (c *Client) InitiateBulkTransfer(ctx context.Context, req BulkTransferReque
 	return &response, nil
 }
 
+// GetBalance fetches the Paystack account balance.
+// Endpoint: GET /balance
+func (c *Client) GetBalance(ctx context.Context) (*BalanceResponse, error) {
+	bodyBytes, err := c.makeRequest(ctx, "GET", "/balance", nil)
+	if err != nil {
+		return nil, fmt.Errorf("paystack get balance failed: %w", err)
+	}
+
+	var response BalanceResponse
+	if err := json.Unmarshal(bodyBytes, &response); err != nil {
+		return nil, fmt.Errorf("failed to decode paystack balance response: %w", err)
+	}
+
+	return &response, nil
+}
+
 // ResolveAccountNumber resolves a bank account number to get the account name.
 // Endpoint: GET /bank/resolve?account_number=...&bank_code=...
 func (c *Client) ResolveAccountNumber(ctx context.Context, accountNumber, bankCode string) (*ResolveAccountResponse, error) {

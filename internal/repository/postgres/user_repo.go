@@ -142,6 +142,19 @@ func (r *userRepository) FindBusinessAdmin(ctx context.Context, businessID uint)
 	return dbUser.ToDomain(), nil
 }
 
+func (r *userRepository) FindByRole(ctx context.Context, role domain.UserRole) ([]*domain.User, error) {
+	var dbUsers []User
+	err := r.db.WithContext(ctx).Where("role = ?", role).Find(&dbUsers).Error
+	if err != nil {
+		return nil, err
+	}
+	domainUsers := make([]*domain.User, len(dbUsers))
+	for i, u := range dbUsers {
+		domainUsers[i] = u.ToDomain()
+	}
+	return domainUsers, nil
+}
+
 func (r *userRepository) FindOperatorsByBusinessID(ctx context.Context, businessID uint) ([]domain.User, error) {
 	var dbUsers []User
 	err := r.db.WithContext(ctx).

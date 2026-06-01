@@ -114,6 +114,7 @@ func NewRouter(
 	billingSvc platform.BillingService,
 	platformSvc platform.PlatformService,
 	accountHolderSvc service.AccountHolderService,
+	reconciliationSvc service.ReconciliationService,
 	koraClient *korapay.Client,
 	transferRepo repository.TransferRepository,
 	businessRepo repository.BusinessRepository,
@@ -164,6 +165,7 @@ func NewRouter(
 	ledgerHandler := handler.NewLedgerHandler(ledgerSvc, walletSvc)
 	leaveHandler := handler.NewLeaveHandler(leaveSvc)
 	walletHandler := handler.NewWalletHandler(walletSvc, accountHolderSvc, cfg, koraClient)
+	reconciliationHandler := handler.NewReconciliationHandler(reconciliationSvc)
 	orgProviderSettingsHandler := handler.NewOrgProviderSettingsHandler(orgProviderSettingsSvc)
 
 	// --- Health Check ---
@@ -448,6 +450,9 @@ func NewRouter(
 		r.Get("/settings", platformSettingsHandler.HandleListSettings)
 		r.Put("/settings/{key}", platformSettingsHandler.HandleSetSetting)
 		r.Delete("/settings/{key}", platformSettingsHandler.HandleDeleteSetting)
+
+		// Provider reconciliation (manual trigger)
+		r.Get("/reconciliation/provider", reconciliationHandler.HandleProviderReconciliation)
 	})
 
 	return r
