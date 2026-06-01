@@ -1,40 +1,33 @@
 {
 	"info": {
-		"_postman_id": "payflow-api-collection",
+		"_postman_id": "payflow-api-collection-v2",
 		"name": "PayFlow API",
-		"description": "PayFlow — Nigerian Payroll SaaS API. Covers authentication, employee management, payroll runs, wallet operations, transfers, and statutory compliance reports.",
+		"description": "Complete PayFlow API collection. Covers all endpoints: auth, employees, cadres, payroll, transfers, wallet, billing, loans, leave, notifications, platform admin, and webhooks.\n\nVariables:\n- {{base_url}}: Backend URL (default: http://localhost:8080)\n- {{admin_token}}: JWT token from admin login\n- {{employee_token}}: JWT token from employee login",
 		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
 	},
 	"variable": [
-		{ "key": "base_url", "value": "http://localhost:8080" },
-		{ "key": "token", "value": "" },
-		{ "key": "employee_id", "value": "" },
-		{ "key": "cadre_id", "value": "" },
-		{ "key": "payroll_run_id", "value": "" },
-		{ "key": "deduction_rule_id", "value": "" },
-		{ "key": "transfer_id", "value": "" },
-		{ "key": "account_holder_reference", "value": "" }
+		{ "key": "base_url", "value": "http://localhost:8080", "type": "string" },
+		{ "key": "admin_token", "value": "", "type": "string" },
+		{ "key": "employee_token", "value": "", "type": "string" }
 	],
 	"item": [
 		{
 			"name": "Health",
 			"item": [
 				{
-					"name": "Health Check",
+					"name": "Readiness Check",
 					"request": {
 						"method": "GET",
 						"header": [],
-						"url": { "raw": "{{base_url}}/health", "host": ["{{base_url}}"], "path": ["health"] },
-						"description": "Returns the overall health status of the PayFlow API."
+						"url": { "raw": "{{base_url}}/health", "host": ["{{base_url}}"], "path": ["health"] }
 					}
 				},
 				{
-					"name": "Liveness Probe",
+					"name": "Liveness Check",
 					"request": {
 						"method": "GET",
 						"header": [],
-						"url": { "raw": "{{base_url}}/health/live", "host": ["{{base_url}}"], "path": ["health", "live"] },
-						"description": "Lightweight liveness probe for container orchestrators."
+						"url": { "raw": "{{base_url}}/health/live", "host": ["{{base_url}}"], "path": ["health", "live"] }
 					}
 				}
 			]
@@ -43,30 +36,24 @@
 			"name": "Auth",
 			"item": [
 				{
-					"name": "Register",
+					"name": "Register Business",
 					"request": {
 						"method": "POST",
 						"header": [{ "key": "Content-Type", "value": "application/json" }],
 						"body": {
 							"mode": "raw",
-							"raw": "{\n  \"business_name\": \"Acme Corp\",\n  \"email\": \"admin@acme.com\",\n  \"password\": \"password123\",\n  \"rc_number\": \"RC123456\",\n  \"incorporation_date\": \"2020-01-15T00:00:00Z\",\n  \"director_bvn\": \"12345678901\"\n}"
+							"raw": "{\n  \"business_name\": \"Acme Ltd\",\n  \"email\": \"admin@acme.com\",\n  \"password\": \"securePass123\",\n  \"rc_number\": \"RC123456\",\n  \"incorporation_date\": \"2020-01-15T00:00:00Z\",\n  \"director_bvn\": \"12345678901\"\n}"
 						},
-						"url": { "raw": "{{base_url}}/v1/auth/register", "host": ["{{base_url}}"], "path": ["v1", "auth", "register"] },
-						"description": "Register a new business and admin user account."
+						"url": { "raw": "{{base_url}}/v1/auth/register", "host": ["{{base_url}}"], "path": ["v1", "auth", "register"] }
 					}
 				},
 				{
-					"name": "Login",
+					"name": "Admin Login",
 					"event": [
 						{
 							"listen": "test",
 							"script": {
-								"type": "text/javascript",
-								"exec": [
-									"if (pm.response.code === 200) {",
-									"    pm.collectionVariables.set(\"token\", pm.response.json().token);",
-									"}"
-								]
+								"exec": ["var jsonData = pm.response.json();\npm.collectionVariables.set('admin_token', jsonData.token);"]
 							}
 						}
 					],
@@ -75,10 +62,41 @@
 						"header": [{ "key": "Content-Type", "value": "application/json" }],
 						"body": {
 							"mode": "raw",
-							"raw": "{\n  \"email\": \"admin@acme.com\",\n  \"password\": \"password123\"\n}"
+							"raw": "{\n  \"email\": \"admin@acme.com\",\n  \"password\": \"securePass123\"\n}"
 						},
-						"url": { "raw": "{{base_url}}/v1/auth/login", "host": ["{{base_url}}"], "path": ["v1", "auth", "login"] },
-						"description": "Authenticate and receive a JWT token. The token is automatically saved to the collection variable."
+						"url": { "raw": "{{base_url}}/v1/auth/login", "host": ["{{base_url}}"], "path": ["v1", "auth", "login"] }
+					}
+				},
+				{
+					"name": "Employee Login",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": ["var jsonData = pm.response.json();\npm.collectionVariables.set('employee_token', jsonData.token);"]
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [{ "key": "Content-Type", "value": "application/json" }],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"email\": \"john@acme.com\",\n  \"password\": \"tempPass123\"\n}"
+						},
+						"url": { "raw": "{{base_url}}/v1/auth/employee/login", "host": ["{{base_url}}"], "path": ["v1", "auth", "employee", "login"] }
+					}
+				},
+				{
+					"name": "Accept Invitation",
+					"request": {
+						"method": "POST",
+						"header": [{ "key": "Content-Type", "value": "application/json" }],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"token\": \"invite-token-uuid\",\n  \"password\": \"newSecurePass\"\n}"
+						},
+						"url": { "raw": "{{base_url}}/v1/auth/accept-invitation", "host": ["{{base_url}}"], "path": ["v1", "auth", "accept-invitation"] }
 					}
 				},
 				{
@@ -90,8 +108,7 @@
 							"mode": "raw",
 							"raw": "{\n  \"email\": \"admin@acme.com\"\n}"
 						},
-						"url": { "raw": "{{base_url}}/v1/auth/forgot-password", "host": ["{{base_url}}"], "path": ["v1", "auth", "forgot-password"] },
-						"description": "Request a password reset email."
+						"url": { "raw": "{{base_url}}/v1/auth/forgot-password", "host": ["{{base_url}}"], "path": ["v1", "auth", "forgot-password"] }
 					}
 				},
 				{
@@ -101,202 +118,44 @@
 						"header": [{ "key": "Content-Type", "value": "application/json" }],
 						"body": {
 							"mode": "raw",
-							"raw": "{\n  \"token\": \"paste-reset-token\",\n  \"new_password\": \"newpassword123\"\n}"
+							"raw": "{\n  \"token\": \"reset-token-uuid\",\n  \"new_password\": \"newSecurePass\"\n}"
 						},
-						"url": { "raw": "{{base_url}}/v1/auth/reset-password", "host": ["{{base_url}}"], "path": ["v1", "auth", "reset-password"] },
-						"description": "Reset the password using a token received via email."
+						"url": { "raw": "{{base_url}}/v1/auth/reset-password", "host": ["{{base_url}}"], "path": ["v1", "auth", "reset-password"] }
 					}
 				},
 				{
-					"name": "Accept Invitation",
+					"name": "Verify Email",
 					"request": {
 						"method": "POST",
 						"header": [{ "key": "Content-Type", "value": "application/json" }],
 						"body": {
 							"mode": "raw",
-							"raw": "{\n  \"token\": \"paste-invite-token\",\n  \"password\": \"mypassword123\"\n}"
+							"raw": "{\n  \"token\": \"verify-token-uuid\"\n}"
 						},
-						"url": { "raw": "{{base_url}}/v1/auth/accept-invitation", "host": ["{{base_url}}"], "path": ["v1", "auth", "accept-invitation"] },
-						"description": "Accept a team invitation and set a password for the new user account."
+						"url": { "raw": "{{base_url}}/v1/auth/verify-email", "host": ["{{base_url}}"], "path": ["v1", "auth", "verify-email"] }
 					}
-				}
-			]
-		},
-		{
-			"name": "User Management",
-			"item": [
+				},
+				{
+					"name": "Resend Verification",
+					"request": {
+						"method": "POST",
+						"header": [{ "key": "Authorization", "value": "Bearer {{admin_token}}" }],
+						"url": { "raw": "{{base_url}}/v1/auth/resend-verification", "host": ["{{base_url}}"], "path": ["v1", "auth", "resend-verification"] }
+					}
+				},
 				{
 					"name": "Invite User",
 					"request": {
 						"method": "POST",
-						"header": [{ "key": "Content-Type", "value": "application/json" }],
-						"auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{token}}" }] },
+						"header": [
+							{ "key": "Authorization", "value": "Bearer {{admin_token}}" },
+							{ "key": "Content-Type", "value": "application/json" }
+						],
 						"body": {
 							"mode": "raw",
-							"raw": "{\n  \"email\": \"operator@acme.com\",\n  \"role\": \"operator\"\n}"
+							"raw": "{\n  \"email\": \"approver@acme.com\",\n  \"role\": \"approver\"\n}"
 						},
-						"url": { "raw": "{{base_url}}/v1/auth/invite", "host": ["{{base_url}}"], "path": ["v1", "auth", "invite"] },
-						"description": "Invite a new user to the business. Admin only. Supported roles: admin, operator, viewer."
-					}
-				}
-			]
-		},
-		{
-			"name": "Business Settings",
-			"item": [
-				{
-					"name": "Get Business Settings",
-					"request": {
-						"method": "GET",
-						"header": [],
-						"auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{token}}" }] },
-						"url": { "raw": "{{base_url}}/v1/business/settings", "host": ["{{base_url}}"], "path": ["v1", "business", "settings"] },
-						"description": "Retrieve the current business settings including statutory deduction toggles."
-					}
-				},
-				{
-					"name": "Update Business Settings",
-					"request": {
-						"method": "PATCH",
-						"header": [{ "key": "Content-Type", "value": "application/json" }],
-						"auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{token}}" }] },
-						"body": {
-							"mode": "raw",
-							"raw": "{\n  \"pension_enabled\": true,\n  \"nhf_enabled\": true,\n  \"nsitf_enabled\": true,\n  \"paye_enabled\": true\n}"
-						},
-						"url": { "raw": "{{base_url}}/v1/business/settings", "host": ["{{base_url}}"], "path": ["v1", "business", "settings"] },
-						"description": "Update business settings. Admin only. Controls which statutory deductions are active."
-					}
-				}
-			]
-		},
-		{
-			"name": "Dashboard",
-			"item": [
-				{
-					"name": "Get Dashboard",
-					"request": {
-						"method": "GET",
-						"header": [],
-						"auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{token}}" }] },
-						"url": { "raw": "{{base_url}}/v1/dashboard", "host": ["{{base_url}}"], "path": ["v1", "dashboard"] },
-						"description": "Retrieve the dashboard summary including employee count, payroll totals, and recent activity."
-					}
-				}
-			]
-		},
-		{
-			"name": "Deduction Rules",
-			"item": [
-				{
-					"name": "Create Deduction Rule",
-					"request": {
-						"method": "POST",
-						"header": [{ "key": "Content-Type", "value": "application/json" }],
-						"auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{token}}" }] },
-						"body": {
-							"mode": "raw",
-							"raw": "{\n  \"name\": \"Custom Tax\",\n  \"type\": \"percentage\",\n  \"value\": 5.0,\n  \"calculation_basis\": \"gross_pay\"\n}"
-						},
-						"url": { "raw": "{{base_url}}/v1/deduction-rules", "host": ["{{base_url}}"], "path": ["v1", "deduction-rules"] },
-						"description": "Create a custom deduction rule. Admin only. Types: percentage, fixed_amount. Calculation basis: gross_pay, basic_pay, net_pay."
-					}
-				},
-				{
-					"name": "List Deduction Rules",
-					"request": {
-						"method": "GET",
-						"header": [],
-						"auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{token}}" }] },
-						"url": { "raw": "{{base_url}}/v1/deduction-rules", "host": ["{{base_url}}"], "path": ["v1", "deduction-rules"] },
-						"description": "List all deduction rules for the business."
-					}
-				},
-				{
-					"name": "Update Deduction Rule",
-					"request": {
-						"method": "PUT",
-						"header": [{ "key": "Content-Type", "value": "application/json" }],
-						"auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{token}}" }] },
-						"body": {
-							"mode": "raw",
-							"raw": "{\n  \"name\": \"Updated Tax\",\n  \"type\": \"percentage\",\n  \"value\": 7.5,\n  \"calculation_basis\": \"gross_pay\"\n}"
-						},
-						"url": { "raw": "{{base_url}}/v1/deduction-rules/{{deduction_rule_id}}", "host": ["{{base_url}}"], "path": ["v1", "deduction-rules", "{{deduction_rule_id}}"] },
-						"description": "Update an existing deduction rule by ID. Admin only."
-					}
-				},
-				{
-					"name": "Delete Deduction Rule",
-					"request": {
-						"method": "DELETE",
-						"header": [],
-						"auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{token}}" }] },
-						"url": { "raw": "{{base_url}}/v1/deduction-rules/{{deduction_rule_id}}", "host": ["{{base_url}}"], "path": ["v1", "deduction-rules", "{{deduction_rule_id}}"] },
-						"description": "Delete a deduction rule by ID. Admin only."
-					}
-				}
-			]
-		},
-		{
-			"name": "Cadres",
-			"item": [
-				{
-					"name": "Create Cadre",
-					"request": {
-						"method": "POST",
-						"header": [{ "key": "Content-Type", "value": "application/json" }],
-						"auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{token}}" }] },
-						"body": {
-							"mode": "raw",
-							"raw": "{\n  \"name\": \"Senior Engineer\",\n  \"earning_components\": [\n    { \"name\": \"Basic Salary\", \"amount\": 20000000, \"component_type\": \"basic\" },\n    { \"name\": \"Housing Allowance\", \"amount\": 5000000, \"component_type\": \"housing\" },\n    { \"name\": \"Transport Allowance\", \"amount\": 3000000, \"component_type\": \"transport\" }\n  ]\n}"
-						},
-						"url": { "raw": "{{base_url}}/v1/cadres", "host": ["{{base_url}}"], "path": ["v1", "cadres"] },
-						"description": "Create a new cadre (pay grade) with earning components. Admin/Operator only. Amounts are in kobo (smallest currency unit)."
-					}
-				},
-				{
-					"name": "List Cadres",
-					"request": {
-						"method": "GET",
-						"header": [],
-						"auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{token}}" }] },
-						"url": { "raw": "{{base_url}}/v1/cadres", "host": ["{{base_url}}"], "path": ["v1", "cadres"] },
-						"description": "List all cadres for the business."
-					}
-				},
-				{
-					"name": "Get Cadre",
-					"request": {
-						"method": "GET",
-						"header": [],
-						"auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{token}}" }] },
-						"url": { "raw": "{{base_url}}/v1/cadres/{{cadre_id}}", "host": ["{{base_url}}"], "path": ["v1", "cadres", "{{cadre_id}}"] },
-						"description": "Retrieve a single cadre by ID, including its earning components and deduction rules."
-					}
-				},
-				{
-					"name": "Update Cadre",
-					"request": {
-						"method": "PUT",
-						"header": [{ "key": "Content-Type", "value": "application/json" }],
-						"auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{token}}" }] },
-						"body": {
-							"mode": "raw",
-							"raw": "{\n  \"name\": \"Senior Engineer\",\n  \"earning_components\": [\n    { \"name\": \"Basic Salary\", \"amount\": 20000000, \"component_type\": \"basic\" },\n    { \"name\": \"Housing Allowance\", \"amount\": 5000000, \"component_type\": \"housing\" },\n    { \"name\": \"Transport Allowance\", \"amount\": 3000000, \"component_type\": \"transport\" }\n  ]\n}"
-						},
-						"url": { "raw": "{{base_url}}/v1/cadres/{{cadre_id}}", "host": ["{{base_url}}"], "path": ["v1", "cadres", "{{cadre_id}}"] },
-						"description": "Update an existing cadre and its earning components. Admin/Operator only."
-					}
-				},
-				{
-					"name": "Delete Cadre",
-					"request": {
-						"method": "DELETE",
-						"header": [],
-						"auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{token}}" }] },
-						"url": { "raw": "{{base_url}}/v1/cadres/{{cadre_id}}", "host": ["{{base_url}}"], "path": ["v1", "cadres", "{{cadre_id}}"] },
-						"description": "Delete a cadre by ID. Admin/Operator only. Fails if employees are still assigned."
+						"url": { "raw": "{{base_url}}/v1/auth/invite", "host": ["{{base_url}}"], "path": ["v1", "auth", "invite"] }
 					}
 				}
 			]
@@ -308,58 +167,199 @@
 					"name": "Create Employee",
 					"request": {
 						"method": "POST",
-						"header": [{ "key": "Content-Type", "value": "application/json" }],
-						"auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{token}}" }] },
+						"header": [
+							{ "key": "Authorization", "value": "Bearer {{admin_token}}" },
+							{ "key": "Content-Type", "value": "application/json" }
+						],
 						"body": {
 							"mode": "raw",
 							"raw": "{\n  \"cadre_id\": 1,\n  \"full_name\": \"John Doe\",\n  \"email\": \"john@acme.com\",\n  \"bank_name\": \"GTBank\",\n  \"bank_code\": \"058\",\n  \"bank_account_number\": \"0123456789\",\n  \"tin\": \"1234567890\",\n  \"pension_rsa_pin\": \"PEN001234\",\n  \"nhf_number\": \"NHF001234\",\n  \"annual_rent_paid\": 240000000\n}"
 						},
-						"url": { "raw": "{{base_url}}/v1/employees", "host": ["{{base_url}}"], "path": ["v1", "employees"] },
-						"description": "Add a new employee to the business. Admin/Operator only. annual_rent_paid is in kobo."
+						"url": { "raw": "{{base_url}}/v1/employees", "host": ["{{base_url}}"], "path": ["v1", "employees"] }
 					}
 				},
 				{
 					"name": "List Employees",
 					"request": {
 						"method": "GET",
-						"header": [],
-						"auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{token}}" }] },
-						"url": { "raw": "{{base_url}}/v1/employees", "host": ["{{base_url}}"], "path": ["v1", "employees"] },
-						"description": "List all employees for the business."
+						"header": [{ "key": "Authorization", "value": "Bearer {{admin_token}}" }],
+						"url": { "raw": "{{base_url}}/v1/employees", "host": ["{{base_url}}"], "path": ["v1", "employees"] }
 					}
 				},
 				{
 					"name": "Get Employee",
 					"request": {
 						"method": "GET",
-						"header": [],
-						"auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{token}}" }] },
-						"url": { "raw": "{{base_url}}/v1/employees/{{employee_id}}", "host": ["{{base_url}}"], "path": ["v1", "employees", "{{employee_id}}"] },
-						"description": "Retrieve a single employee by ID, including their cadre and deduction details."
+						"header": [{ "key": "Authorization", "value": "Bearer {{admin_token}}" }],
+						"url": { "raw": "{{base_url}}/v1/employees/1", "host": ["{{base_url}}"], "path": ["v1", "employees", "1"] }
 					}
 				},
 				{
 					"name": "Update Employee",
 					"request": {
 						"method": "PUT",
-						"header": [{ "key": "Content-Type", "value": "application/json" }],
-						"auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{token}}" }] },
+						"header": [
+							{ "key": "Authorization", "value": "Bearer {{admin_token}}" },
+							{ "key": "Content-Type", "value": "application/json" }
+						],
 						"body": {
 							"mode": "raw",
-							"raw": "{\n  \"full_name\": \"John Updated\",\n  \"bank_code\": \"058\",\n  \"tin\": \"1234567890\"\n}"
+							"raw": "{\n  \"full_name\": \"John Updated\",\n  \"cadre_id\": 2,\n  \"bank_name\": \"Access Bank\",\n  \"bank_code\": \"044\",\n  \"bank_account_number\": \"9876543210\"\n}"
 						},
-						"url": { "raw": "{{base_url}}/v1/employees/{{employee_id}}", "host": ["{{base_url}}"], "path": ["v1", "employees", "{{employee_id}}"] },
-						"description": "Update employee details. Admin/Operator only. Only provided fields are updated."
+						"url": { "raw": "{{base_url}}/v1/employees/1", "host": ["{{base_url}}"], "path": ["v1", "employees", "1"] }
 					}
 				},
 				{
 					"name": "Deactivate Employee",
 					"request": {
 						"method": "PATCH",
-						"header": [],
-						"auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{token}}" }] },
-						"url": { "raw": "{{base_url}}/v1/employees/{{employee_id}}/deactivate", "host": ["{{base_url}}"], "path": ["v1", "employees", "{{employee_id}}", "deactivate"] },
-						"description": "Deactivate an employee. They will be excluded from future payroll runs."
+						"header": [{ "key": "Authorization", "value": "Bearer {{admin_token}}" }],
+						"url": { "raw": "{{base_url}}/v1/employees/1/deactivate", "host": ["{{base_url}}"], "path": ["v1", "employees", "1", "deactivate"] }
+					}
+				},
+				{
+					"name": "Import Employees (CSV)",
+					"request": {
+						"method": "POST",
+						"header": [{ "key": "Authorization", "value": "Bearer {{admin_token}}" }],
+						"body": {
+							"mode": "formdata",
+							"formdata": [{ "key": "file", "type": "file", "src": "" }]
+						},
+						"url": { "raw": "{{base_url}}/v1/employees/import", "host": ["{{base_url}}"], "path": ["v1", "employees", "import"] }
+					}
+				},
+				{
+					"name": "Download Import Template",
+					"request": {
+						"method": "GET",
+						"header": [{ "key": "Authorization", "value": "Bearer {{admin_token}}" }],
+						"url": { "raw": "{{base_url}}/v1/employees/import/template", "host": ["{{base_url}}"], "path": ["v1", "employees", "import", "template"] }
+					}
+				},
+				{
+					"name": "Create Employee Login",
+					"request": {
+						"method": "POST",
+						"header": [
+							{ "key": "Authorization", "value": "Bearer {{admin_token}}" },
+							{ "key": "Content-Type", "value": "application/json" }
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"temp_password\": \"tempPass123\"\n}"
+						},
+						"url": { "raw": "{{base_url}}/v1/employees/1/create-login", "host": ["{{base_url}}"], "path": ["v1", "employees", "1", "create-login"] }
+					}
+				}
+			]
+		},
+		{
+			"name": "Cadres",
+			"item": [
+				{
+					"name": "Create Cadre",
+					"request": {
+						"method": "POST",
+						"header": [
+							{ "key": "Authorization", "value": "Bearer {{admin_token}}" },
+							{ "key": "Content-Type", "value": "application/json" }
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"name\": \"Senior Engineer\",\n  \"earning_components\": [\n    { \"name\": \"Basic Salary\", \"amount\": 50000000 },\n    { \"name\": \"Housing Allowance\", \"amount\": 20000000 },\n    { \"name\": \"Transport Allowance\", \"amount\": 10000000 }\n  ]\n}"
+						},
+						"url": { "raw": "{{base_url}}/v1/cadres", "host": ["{{base_url}}"], "path": ["v1", "cadres"] }
+					}
+				},
+				{
+					"name": "List Cadres",
+					"request": {
+						"method": "GET",
+						"header": [{ "key": "Authorization", "value": "Bearer {{admin_token}}" }],
+						"url": { "raw": "{{base_url}}/v1/cadres", "host": ["{{base_url}}"], "path": ["v1", "cadres"] }
+					}
+				},
+				{
+					"name": "Get Cadre",
+					"request": {
+						"method": "GET",
+						"header": [{ "key": "Authorization", "value": "Bearer {{admin_token}}" }],
+						"url": { "raw": "{{base_url}}/v1/cadres/1", "host": ["{{base_url}}"], "path": ["v1", "cadres", "1"] }
+					}
+				},
+				{
+					"name": "Update Cadre",
+					"request": {
+						"method": "PUT",
+						"header": [
+							{ "key": "Authorization", "value": "Bearer {{admin_token}}" },
+							{ "key": "Content-Type", "value": "application/json" }
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"name\": \"Senior Engineer (Updated)\",\n  \"earning_components\": [\n    { \"name\": \"Basic Salary\", \"amount\": 55000000 },\n    { \"name\": \"Housing Allowance\", \"amount\": 22000000 }\n  ]\n}"
+						},
+						"url": { "raw": "{{base_url}}/v1/cadres/1", "host": ["{{base_url}}"], "path": ["v1", "cadres", "1"] }
+					}
+				},
+				{
+					"name": "Delete Cadre",
+					"request": {
+						"method": "DELETE",
+						"header": [{ "key": "Authorization", "value": "Bearer {{admin_token}}" }],
+						"url": { "raw": "{{base_url}}/v1/cadres/1", "host": ["{{base_url}}"], "path": ["v1", "cadres", "1"] }
+					}
+				}
+			]
+		},
+		{
+			"name": "Deduction Rules",
+			"item": [
+				{
+					"name": "Create Deduction Rule",
+					"request": {
+						"method": "POST",
+						"header": [
+							{ "key": "Authorization", "value": "Bearer {{admin_token}}" },
+							{ "key": "Content-Type", "value": "application/json" }
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"name\": \"Health Insurance\",\n  \"type\": \"percentage\",\n  \"value\": 2.5,\n  \"calculation_basis\": \"gross_pay\"\n}"
+						},
+						"url": { "raw": "{{base_url}}/v1/deduction-rules", "host": ["{{base_url}}"], "path": ["v1", "deduction-rules"] }
+					}
+				},
+				{
+					"name": "List Deduction Rules",
+					"request": {
+						"method": "GET",
+						"header": [{ "key": "Authorization", "value": "Bearer {{admin_token}}" }],
+						"url": { "raw": "{{base_url}}/v1/deduction-rules", "host": ["{{base_url}}"], "path": ["v1", "deduction-rules"] }
+					}
+				},
+				{
+					"name": "Update Deduction Rule",
+					"request": {
+						"method": "PUT",
+						"header": [
+							{ "key": "Authorization", "value": "Bearer {{admin_token}}" },
+							{ "key": "Content-Type", "value": "application/json" }
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"name\": \"Health Insurance (Updated)\",\n  \"type\": \"percentage\",\n  \"value\": 3.0,\n  \"calculation_basis\": \"gross_pay\"\n}"
+						},
+						"url": { "raw": "{{base_url}}/v1/deduction-rules/1", "host": ["{{base_url}}"], "path": ["v1", "deduction-rules", "1"] }
+					}
+				},
+				{
+					"name": "Delete Deduction Rule",
+					"request": {
+						"method": "DELETE",
+						"header": [{ "key": "Authorization", "value": "Bearer {{admin_token}}" }],
+						"url": { "raw": "{{base_url}}/v1/deduction-rules/1", "host": ["{{base_url}}"], "path": ["v1", "deduction-rules", "1"] }
 					}
 				}
 			]
@@ -371,250 +371,169 @@
 					"name": "Create Payroll Run",
 					"request": {
 						"method": "POST",
-						"header": [{ "key": "Content-Type", "value": "application/json" }],
-						"auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{token}}" }] },
+						"header": [
+							{ "key": "Authorization", "value": "Bearer {{admin_token}}" },
+							{ "key": "Content-Type", "value": "application/json" }
+						],
 						"body": {
 							"mode": "raw",
-							"raw": "{\n  \"period\": \"2026-01\"\n}"
+							"raw": "{\n  \"period\": \"2026-06\",\n  \"adjustments\": {\n    \"1\": [\n      { \"item_name\": \"Performance Bonus\", \"amount\": 5000000, \"description\": \"Q2 bonus\" }\n    ]\n  }\n}"
 						},
-						"url": { "raw": "{{base_url}}/v1/payroll-runs", "host": ["{{base_url}}"], "path": ["v1", "payroll-runs"] },
-						"description": "Create a new payroll run for the given period (YYYY-MM). Calculates gross pay, deductions, and net pay for all active employees."
+						"url": { "raw": "{{base_url}}/v1/payroll-runs", "host": ["{{base_url}}"], "path": ["v1", "payroll-runs"] }
 					}
 				},
 				{
 					"name": "List Payroll Runs",
 					"request": {
 						"method": "GET",
-						"header": [],
-						"auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{token}}" }] },
-						"url": { "raw": "{{base_url}}/v1/payroll-runs", "host": ["{{base_url}}"], "path": ["v1", "payroll-runs"] },
-						"description": "List all payroll runs for the business."
+						"header": [{ "key": "Authorization", "value": "Bearer {{admin_token}}" }],
+						"url": { "raw": "{{base_url}}/v1/payroll-runs", "host": ["{{base_url}}"], "path": ["v1", "payroll-runs"] }
 					}
 				},
 				{
 					"name": "Get Payroll Run",
 					"request": {
 						"method": "GET",
-						"header": [],
-						"auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{token}}" }] },
-						"url": { "raw": "{{base_url}}/v1/payroll-runs/{{payroll_run_id}}", "host": ["{{base_url}}"], "path": ["v1", "payroll-runs", "{{payroll_run_id}}"] },
-						"description": "Retrieve a single payroll run by ID, including all payslip line items."
+						"header": [{ "key": "Authorization", "value": "Bearer {{admin_token}}" }],
+						"url": { "raw": "{{base_url}}/v1/payroll-runs/1", "host": ["{{base_url}}"], "path": ["v1", "payroll-runs", "1"] }
 					}
 				},
 				{
-					"name": "Submit Payroll Run",
+					"name": "Get Payroll Status",
+					"request": {
+						"method": "GET",
+						"header": [{ "key": "Authorization", "value": "Bearer {{admin_token}}" }],
+						"url": { "raw": "{{base_url}}/v1/payroll-runs/1/status", "host": ["{{base_url}}"], "path": ["v1", "payroll-runs", "1", "status"] }
+					}
+				},
+				{
+					"name": "Submit for Approval",
 					"request": {
 						"method": "POST",
-						"header": [],
-						"auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{token}}" }] },
-						"url": { "raw": "{{base_url}}/v1/payroll-runs/{{payroll_run_id}}/submit", "host": ["{{base_url}}"], "path": ["v1", "payroll-runs", "{{payroll_run_id}}", "submit"] },
-						"description": "Submit a draft payroll run for approval. Moves status from draft to pending_approval."
+						"header": [{ "key": "Authorization", "value": "Bearer {{admin_token}}" }],
+						"url": { "raw": "{{base_url}}/v1/payroll-runs/1/submit", "host": ["{{base_url}}"], "path": ["v1", "payroll-runs", "1", "submit"] }
 					}
 				},
 				{
 					"name": "Approve Payroll Run",
 					"request": {
 						"method": "POST",
-						"header": [],
-						"auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{token}}" }] },
-						"url": { "raw": "{{base_url}}/v1/payroll-runs/{{payroll_run_id}}/approve", "host": ["{{base_url}}"], "path": ["v1", "payroll-runs", "{{payroll_run_id}}", "approve"] },
-						"description": "Approve a submitted payroll run. Moves status from pending_approval to approved."
+						"header": [{ "key": "Authorization", "value": "Bearer {{admin_token}}" }],
+						"url": { "raw": "{{base_url}}/v1/payroll-runs/1/approve", "host": ["{{base_url}}"], "path": ["v1", "payroll-runs", "1", "approve"] }
 					}
 				},
 				{
 					"name": "Reject Payroll Run",
 					"request": {
 						"method": "POST",
-						"header": [{ "key": "Content-Type", "value": "application/json" }],
-						"auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{token}}" }] },
+						"header": [
+							{ "key": "Authorization", "value": "Bearer {{admin_token}}" },
+							{ "key": "Content-Type", "value": "application/json" }
+						],
 						"body": {
 							"mode": "raw",
-							"raw": "{\n  \"reason\": \"Incorrect figures\"\n}"
+							"raw": "{\n  \"reason\": \"Incorrect bonus amounts\"\n}"
 						},
-						"url": { "raw": "{{base_url}}/v1/payroll-runs/{{payroll_run_id}}/reject", "host": ["{{base_url}}"], "path": ["v1", "payroll-runs", "{{payroll_run_id}}", "reject"] },
-						"description": "Reject a submitted payroll run with a reason. Moves status back to draft."
+						"url": { "raw": "{{base_url}}/v1/payroll-runs/1/reject", "host": ["{{base_url}}"], "path": ["v1", "payroll-runs", "1", "reject"] }
 					}
 				},
 				{
-					"name": "Process Payroll Now",
+					"name": "Process Now",
 					"request": {
 						"method": "POST",
-						"header": [],
-						"auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{token}}" }] },
-						"url": { "raw": "{{base_url}}/v1/payroll-runs/{{payroll_run_id}}/process-now", "host": ["{{base_url}}"], "path": ["v1", "payroll-runs", "{{payroll_run_id}}", "process-now"] },
-						"description": "Trigger immediate disbursement of an approved payroll run. Initiates bank transfers for all employees."
+						"header": [{ "key": "Authorization", "value": "Bearer {{admin_token}}" }],
+						"url": { "raw": "{{base_url}}/v1/payroll-runs/1/process-now", "host": ["{{base_url}}"], "path": ["v1", "payroll-runs", "1", "process-now"] }
+					}
+				},
+				{
+					"name": "Amend Payroll Run",
+					"request": {
+						"method": "PUT",
+						"header": [
+							{ "key": "Authorization", "value": "Bearer {{admin_token}}" },
+							{ "key": "Content-Type", "value": "application/json" }
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"adjustments\": {\n    \"1\": [{ \"item_name\": \"Bonus\", \"amount\": 3000000 }]\n  }\n}"
+						},
+						"url": { "raw": "{{base_url}}/v1/payroll-runs/1/amend", "host": ["{{base_url}}"], "path": ["v1", "payroll-runs", "1", "amend"] }
+					}
+				},
+				{
+					"name": "Reverse Payroll Run",
+					"request": {
+						"method": "POST",
+						"header": [
+							{ "key": "Authorization", "value": "Bearer {{admin_token}}" },
+							{ "key": "Content-Type", "value": "application/json" }
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"reason\": \"Duplicate payroll run\"\n}"
+						},
+						"url": { "raw": "{{base_url}}/v1/payroll-runs/1/reverse", "host": ["{{base_url}}"], "path": ["v1", "payroll-runs", "1", "reverse"] }
 					}
 				}
 			]
 		},
 		{
-			"name": "Reports & Payslips",
+			"name": "Payroll Reports",
 			"item": [
 				{
-					"name": "Download PAYE Report",
+					"name": "PAYE Report (CSV)",
 					"request": {
 						"method": "GET",
-						"header": [],
-						"auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{token}}" }] },
-						"url": { "raw": "{{base_url}}/v1/payroll-runs/{{payroll_run_id}}/reports/paye", "host": ["{{base_url}}"], "path": ["v1", "payroll-runs", "{{payroll_run_id}}", "reports", "paye"] },
-						"description": "Downloads PAYE return CSV for the payroll run. Admin/Operator only."
+						"header": [{ "key": "Authorization", "value": "Bearer {{admin_token}}" }],
+						"url": { "raw": "{{base_url}}/v1/payroll-runs/1/reports/paye", "host": ["{{base_url}}"], "path": ["v1", "payroll-runs", "1", "reports", "paye"] }
 					}
 				},
 				{
-					"name": "Download Pension Report",
+					"name": "Pension Schedule (CSV)",
 					"request": {
 						"method": "GET",
-						"header": [],
-						"auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{token}}" }] },
-						"url": { "raw": "{{base_url}}/v1/payroll-runs/{{payroll_run_id}}/reports/pension", "host": ["{{base_url}}"], "path": ["v1", "payroll-runs", "{{payroll_run_id}}", "reports", "pension"] },
-						"description": "Downloads pension schedule CSV for the payroll run. Admin/Operator only."
+						"header": [{ "key": "Authorization", "value": "Bearer {{admin_token}}" }],
+						"url": { "raw": "{{base_url}}/v1/payroll-runs/1/reports/pension", "host": ["{{base_url}}"], "path": ["v1", "payroll-runs", "1", "reports", "pension"] }
 					}
 				},
 				{
-					"name": "Download NHF Report",
+					"name": "NHF Schedule (CSV)",
 					"request": {
 						"method": "GET",
-						"header": [],
-						"auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{token}}" }] },
-						"url": { "raw": "{{base_url}}/v1/payroll-runs/{{payroll_run_id}}/reports/nhf", "host": ["{{base_url}}"], "path": ["v1", "payroll-runs", "{{payroll_run_id}}", "reports", "nhf"] },
-						"description": "Downloads NHF schedule CSV for the payroll run. Admin/Operator only."
+						"header": [{ "key": "Authorization", "value": "Bearer {{admin_token}}" }],
+						"url": { "raw": "{{base_url}}/v1/payroll-runs/1/reports/nhf", "host": ["{{base_url}}"], "path": ["v1", "payroll-runs", "1", "reports", "nhf"] }
 					}
 				},
 				{
-					"name": "Download Bank Schedule",
+					"name": "Bank Schedule (CSV)",
 					"request": {
 						"method": "GET",
-						"header": [],
-						"auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{token}}" }] },
-						"url": { "raw": "{{base_url}}/v1/payroll-runs/{{payroll_run_id}}/reports/bank-schedule", "host": ["{{base_url}}"], "path": ["v1", "payroll-runs", "{{payroll_run_id}}", "reports", "bank-schedule"] },
-						"description": "Downloads bank transfer schedule CSV for the payroll run. Admin/Operator only."
+						"header": [{ "key": "Authorization", "value": "Bearer {{admin_token}}" }],
+						"url": { "raw": "{{base_url}}/v1/payroll-runs/1/reports/bank-schedule", "host": ["{{base_url}}"], "path": ["v1", "payroll-runs", "1", "reports", "bank-schedule"] }
 					}
 				},
 				{
-					"name": "Download Employee Payslip",
+					"name": "Payroll Summary (CSV)",
 					"request": {
 						"method": "GET",
-						"header": [],
-						"auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{token}}" }] },
-						"url": { "raw": "{{base_url}}/v1/payroll-runs/{{payroll_run_id}}/payslips/{{employee_id}}", "host": ["{{base_url}}"], "path": ["v1", "payroll-runs", "{{payroll_run_id}}", "payslips", "{{employee_id}}"] },
-						"description": "Downloads employee payslip PDF for a specific employee in the payroll run."
+						"header": [{ "key": "Authorization", "value": "Bearer {{admin_token}}" }],
+						"url": { "raw": "{{base_url}}/v1/payroll-runs/1/reports/summary", "host": ["{{base_url}}"], "path": ["v1", "payroll-runs", "1", "reports", "summary"] }
 					}
 				},
 				{
-					"name": "Download All Payslips (ZIP)",
+					"name": "All Payslips (ZIP)",
 					"request": {
 						"method": "GET",
-						"header": [],
-						"auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{token}}" }] },
-						"url": { "raw": "{{base_url}}/v1/payroll-runs/{{payroll_run_id}}/payslips", "host": ["{{base_url}}"], "path": ["v1", "payroll-runs", "{{payroll_run_id}}", "payslips"] },
-						"description": "Downloads all payslips as ZIP archive for the payroll run."
-					}
-				}
-			]
-		},
-		{
-			"name": "Wallets",
-			"item": [
-				{
-					"name": "Create Virtual Account",
-					"request": {
-						"method": "POST",
-						"header": [{ "key": "Content-Type", "value": "application/json" }],
-						"auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{token}}" }] },
-						"body": {
-							"mode": "raw",
-							"raw": "{\n  \"account_name\": \"Acme Corp\",\n  \"customer_name\": \"Admin User\",\n  \"customer_email\": \"admin@acme.com\",\n  \"bvn\": \"12345678901\"\n}"
-						},
-						"url": { "raw": "{{base_url}}/v1/wallets/virtual-account", "host": ["{{base_url}}"], "path": ["v1", "wallets", "virtual-account"] },
-						"description": "Create a virtual bank account for the business wallet via Korapay."
+						"header": [{ "key": "Authorization", "value": "Bearer {{admin_token}}" }],
+						"url": { "raw": "{{base_url}}/v1/payroll-runs/1/payslips", "host": ["{{base_url}}"], "path": ["v1", "payroll-runs", "1", "payslips"] }
 					}
 				},
 				{
-					"name": "List Wallets",
+					"name": "Individual Payslip (PDF)",
 					"request": {
 						"method": "GET",
-						"header": [],
-						"auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{token}}" }] },
-						"url": { "raw": "{{base_url}}/v1/wallets", "host": ["{{base_url}}"], "path": ["v1", "wallets"] },
-						"description": "List all wallets and virtual accounts for the business."
-					}
-				},
-				{
-					"name": "Get Wallet Balance",
-					"request": {
-						"method": "GET",
-						"header": [],
-						"auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{token}}" }] },
-						"url": { "raw": "{{base_url}}/v1/wallets/balance", "host": ["{{base_url}}"], "path": ["v1", "wallets", "balance"] },
-						"description": "Retrieve the current wallet balance."
-					}
-				},
-				{
-					"name": "List Wallet Transactions",
-					"request": {
-						"method": "GET",
-						"header": [],
-						"auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{token}}" }] },
-						"url": { "raw": "{{base_url}}/v1/wallets/transactions", "host": ["{{base_url}}"], "path": ["v1", "wallets", "transactions"] },
-						"description": "List all transactions (credits and debits) for the wallet."
-					}
-				},
-				{
-					"name": "Create Account Holder",
-					"request": {
-						"method": "POST",
-						"header": [{ "key": "Content-Type", "value": "application/json" }],
-						"auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{token}}" }] },
-						"body": {
-							"mode": "raw",
-							"raw": "{\n  \"account_name\": \"John Doe\",\n  \"bvn\": \"12345678901\",\n  \"email\": \"john@acme.com\"\n}"
-						},
-						"url": { "raw": "{{base_url}}/v1/wallets/account-holders", "host": ["{{base_url}}"], "path": ["v1", "wallets", "account-holders"] },
-						"description": "Create a Korapay account holder for KYC-compliant virtual account operations."
-					}
-				},
-				{
-					"name": "Get Account Holder Details",
-					"request": {
-						"method": "GET",
-						"header": [],
-						"auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{token}}" }] },
-						"url": { "raw": "{{base_url}}/v1/wallets/account-holders/{{account_holder_reference}}/details", "host": ["{{base_url}}"], "path": ["v1", "wallets", "account-holders", "{{account_holder_reference}}", "details"] },
-						"description": "Retrieve details for a specific account holder by reference."
-					}
-				},
-				{
-					"name": "Update Account Holder KYC",
-					"request": {
-						"method": "PATCH",
-						"header": [],
-						"auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{token}}" }] },
-						"url": { "raw": "{{base_url}}/v1/wallets/account-holders/{{account_holder_reference}}/update-kyc", "host": ["{{base_url}}"], "path": ["v1", "wallets", "account-holders", "{{account_holder_reference}}", "update-kyc"] },
-						"description": "Trigger a KYC update for an account holder."
-					}
-				},
-				{
-					"name": "Generate File Upload URL",
-					"request": {
-						"method": "POST",
-						"header": [],
-						"auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{token}}" }] },
-						"url": { "raw": "{{base_url}}/v1/wallets/files/generate-upload-url", "host": ["{{base_url}}"], "path": ["v1", "wallets", "files", "generate-upload-url"] },
-						"description": "Generate a pre-signed URL for uploading KYC documents."
-					}
-				},
-				{
-					"name": "Sandbox Credit",
-					"request": {
-						"method": "POST",
-						"header": [{ "key": "Content-Type", "value": "application/json" }],
-						"auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{token}}" }] },
-						"body": {
-							"mode": "raw",
-							"raw": "{\n  \"amount\": 50000000,\n  \"account_reference\": \"test-ref\"\n}"
-						},
-						"url": { "raw": "{{base_url}}/v1/wallets/sandbox/credit", "host": ["{{base_url}}"], "path": ["v1", "wallets", "sandbox", "credit"] },
-						"description": "Credit the sandbox wallet for testing. Amount is in kobo. Only available in test/sandbox environments."
+						"header": [{ "key": "Authorization", "value": "Bearer {{admin_token}}" }],
+						"url": { "raw": "{{base_url}}/v1/payroll-runs/1/payslips/1", "host": ["{{base_url}}"], "path": ["v1", "payroll-runs", "1", "payslips", "1"] }
 					}
 				}
 			]
@@ -623,51 +542,637 @@
 			"name": "Transfers",
 			"item": [
 				{
-					"name": "Create Transfer",
+					"name": "Single Transfer",
 					"request": {
 						"method": "POST",
-						"header": [{ "key": "Content-Type", "value": "application/json" }],
-						"auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{token}}" }] },
+						"header": [
+							{ "key": "Authorization", "value": "Bearer {{admin_token}}" },
+							{ "key": "Content-Type", "value": "application/json" }
+						],
 						"body": {
 							"mode": "raw",
-							"raw": "{\n  \"amount\": \"500000\",\n  \"bank_code\": \"058\",\n  \"account_number\": \"0123456789\",\n  \"account_name\": \"John Doe\",\n  \"narration\": \"Salary payment\",\n  \"provider\": \"paystack\"\n}"
+							"raw": "{\n  \"amount\": \"500000\",\n  \"bank_code\": \"058\",\n  \"account_number\": \"0123456789\",\n  \"account_name\": \"John Doe\",\n  \"narration\": \"Salary payment\"\n}"
 						},
-						"url": { "raw": "{{base_url}}/v1/transfers", "host": ["{{base_url}}"], "path": ["v1", "transfers"] },
-						"description": "Initiate a single bank transfer from the business wallet."
+						"url": { "raw": "{{base_url}}/v1/transfers", "host": ["{{base_url}}"], "path": ["v1", "transfers"] }
 					}
 				},
 				{
-					"name": "Create Batch Transfer",
+					"name": "Batch Transfer",
 					"request": {
 						"method": "POST",
-						"header": [{ "key": "Content-Type", "value": "application/json" }],
-						"auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{token}}" }] },
+						"header": [
+							{ "key": "Authorization", "value": "Bearer {{admin_token}}" },
+							{ "key": "Content-Type", "value": "application/json" }
+						],
 						"body": {
 							"mode": "raw",
-							"raw": "{\n  \"transfers\": [\n    {\n      \"amount\": \"500000\",\n      \"bank_code\": \"058\",\n      \"account_number\": \"0123456789\",\n      \"account_name\": \"John Doe\",\n      \"narration\": \"Payment 1\"\n    }\n  ]\n}"
+							"raw": "{\n  \"transfers\": [\n    { \"amount\": \"500000\", \"bank_code\": \"058\", \"account_number\": \"0123456789\", \"account_name\": \"John Doe\" },\n    { \"amount\": \"600000\", \"bank_code\": \"044\", \"account_number\": \"9876543210\", \"account_name\": \"Jane Smith\" }\n  ]\n}"
 						},
-						"url": { "raw": "{{base_url}}/v1/transfers/batch", "host": ["{{base_url}}"], "path": ["v1", "transfers", "batch"] },
-						"description": "Initiate a batch of bank transfers from the business wallet."
+						"url": { "raw": "{{base_url}}/v1/transfers/batch", "host": ["{{base_url}}"], "path": ["v1", "transfers", "batch"] }
 					}
 				},
 				{
 					"name": "List Transfers",
 					"request": {
 						"method": "GET",
-						"header": [],
-						"auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{token}}" }] },
-						"url": { "raw": "{{base_url}}/v1/transfers", "host": ["{{base_url}}"], "path": ["v1", "transfers"] },
-						"description": "List all transfers for the business."
+						"header": [{ "key": "Authorization", "value": "Bearer {{admin_token}}" }],
+						"url": { "raw": "{{base_url}}/v1/transfers?page=1&limit=20", "host": ["{{base_url}}"], "path": ["v1", "transfers"], "query": [{ "key": "page", "value": "1" }, { "key": "limit", "value": "20" }] }
 					}
 				},
 				{
 					"name": "Get Transfer",
 					"request": {
 						"method": "GET",
-						"header": [],
-						"auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{token}}" }] },
-						"url": { "raw": "{{base_url}}/v1/transfers/{{transfer_id}}", "host": ["{{base_url}}"], "path": ["v1", "transfers", "{{transfer_id}}"] },
-						"description": "Retrieve a single transfer by ID, including its current status."
+						"header": [{ "key": "Authorization", "value": "Bearer {{admin_token}}" }],
+						"url": { "raw": "{{base_url}}/v1/transfers/1", "host": ["{{base_url}}"], "path": ["v1", "transfers", "1"] }
+					}
+				},
+				{
+					"name": "Retry Transfer",
+					"request": {
+						"method": "POST",
+						"header": [{ "key": "Authorization", "value": "Bearer {{admin_token}}" }],
+						"url": { "raw": "{{base_url}}/v1/transfers/1/retry", "host": ["{{base_url}}"], "path": ["v1", "transfers", "1", "retry"] }
+					}
+				}
+			]
+		},
+		{
+			"name": "Wallet",
+			"item": [
+				{
+					"name": "Create Virtual Account",
+					"request": {
+						"method": "POST",
+						"header": [
+							{ "key": "Authorization", "value": "Bearer {{admin_token}}" },
+							{ "key": "Content-Type", "value": "application/json" }
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"account_name\": \"Acme Payroll\",\n  \"customer_name\": \"Acme Ltd\",\n  \"customer_email\": \"admin@acme.com\",\n  \"bvn\": \"12345678901\",\n  \"permanent\": true\n}"
+						},
+						"url": { "raw": "{{base_url}}/v1/wallets/virtual-account", "host": ["{{base_url}}"], "path": ["v1", "wallets", "virtual-account"] }
+					}
+				},
+				{
+					"name": "Get Wallet",
+					"request": {
+						"method": "GET",
+						"header": [{ "key": "Authorization", "value": "Bearer {{admin_token}}" }],
+						"url": { "raw": "{{base_url}}/v1/wallets", "host": ["{{base_url}}"], "path": ["v1", "wallets"] }
+					}
+				},
+				{
+					"name": "Get Balance",
+					"request": {
+						"method": "GET",
+						"header": [{ "key": "Authorization", "value": "Bearer {{admin_token}}" }],
+						"url": { "raw": "{{base_url}}/v1/wallets/balance", "host": ["{{base_url}}"], "path": ["v1", "wallets", "balance"] }
+					}
+				},
+				{
+					"name": "List Transactions",
+					"request": {
+						"method": "GET",
+						"header": [{ "key": "Authorization", "value": "Bearer {{admin_token}}" }],
+						"url": { "raw": "{{base_url}}/v1/wallets/transactions?page=1&limit=10", "host": ["{{base_url}}"], "path": ["v1", "wallets", "transactions"], "query": [{ "key": "page", "value": "1" }, { "key": "limit", "value": "10" }] }
+					}
+				},
+				{
+					"name": "Initiate Deposit",
+					"request": {
+						"method": "POST",
+						"header": [
+							{ "key": "Authorization", "value": "Bearer {{admin_token}}" },
+							{ "key": "Content-Type", "value": "application/json" }
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"amount\": 10000000,\n  \"email\": \"admin@acme.com\"\n}"
+						},
+						"url": { "raw": "{{base_url}}/v1/wallets/deposit", "host": ["{{base_url}}"], "path": ["v1", "wallets", "deposit"] }
+					}
+				},
+				{
+					"name": "Ledger Entries",
+					"request": {
+						"method": "GET",
+						"header": [{ "key": "Authorization", "value": "Bearer {{admin_token}}" }],
+						"url": { "raw": "{{base_url}}/v1/wallets/ledger?page=1&limit=50", "host": ["{{base_url}}"], "path": ["v1", "wallets", "ledger"], "query": [{ "key": "page", "value": "1" }, { "key": "limit", "value": "50" }] }
+					}
+				},
+				{
+					"name": "Reconcile",
+					"request": {
+						"method": "GET",
+						"header": [{ "key": "Authorization", "value": "Bearer {{admin_token}}" }],
+						"url": { "raw": "{{base_url}}/v1/wallets/reconcile", "host": ["{{base_url}}"], "path": ["v1", "wallets", "reconcile"] }
+					}
+				},
+				{
+					"name": "Sandbox Credit",
+					"request": {
+						"method": "POST",
+						"header": [
+							{ "key": "Authorization", "value": "Bearer {{admin_token}}" },
+							{ "key": "Content-Type", "value": "application/json" }
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"account_number\": \"8012345678\",\n  \"amount\": 100000,\n  \"currency\": \"NGN\"\n}"
+						},
+						"url": { "raw": "{{base_url}}/v1/wallets/sandbox/credit", "host": ["{{base_url}}"], "path": ["v1", "wallets", "sandbox", "credit"] }
+					}
+				}
+			]
+		},
+		{
+			"name": "Account Holders / KYC",
+			"item": [
+				{
+					"name": "Create Account Holder",
+					"request": {
+						"method": "POST",
+						"header": [
+							{ "key": "Authorization", "value": "Bearer {{admin_token}}" },
+							{ "key": "Content-Type", "value": "application/json" }
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"first_name\": \"John\",\n  \"last_name\": \"Doe\",\n  \"use_case\": \"Business\",\n  \"type\": \"individual\",\n  \"date_of_birth\": \"1990-05-15\",\n  \"nationality\": \"NG\",\n  \"email\": \"john@acme.com\",\n  \"phone\": \"+2348133443000\",\n  \"source_of_inflow\": \"business_income\"\n}"
+						},
+						"url": { "raw": "{{base_url}}/v1/wallets/account-holders", "host": ["{{base_url}}"], "path": ["v1", "wallets", "account-holders"] }
+					}
+				},
+				{
+					"name": "Get Account Holder Details",
+					"request": {
+						"method": "GET",
+						"header": [{ "key": "Authorization", "value": "Bearer {{admin_token}}" }],
+						"url": { "raw": "{{base_url}}/v1/wallets/account-holders/ref123/details", "host": ["{{base_url}}"], "path": ["v1", "wallets", "account-holders", "ref123", "details"] }
+					}
+				},
+				{
+					"name": "Update KYC",
+					"request": {
+						"method": "PATCH",
+						"header": [
+							{ "key": "Authorization", "value": "Bearer {{admin_token}}" },
+							{ "key": "Content-Type", "value": "application/json" }
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"first_name\": \"John\",\n  \"last_name\": \"Doe\",\n  \"source_of_inflow\": \"salary\"\n}"
+						},
+						"url": { "raw": "{{base_url}}/v1/wallets/account-holders/ref123/update-kyc", "host": ["{{base_url}}"], "path": ["v1", "wallets", "account-holders", "ref123", "update-kyc"] }
+					}
+				},
+				{
+					"name": "Generate File Upload URL",
+					"request": {
+						"method": "POST",
+						"header": [
+							{ "key": "Authorization", "value": "Bearer {{admin_token}}" },
+							{ "key": "Content-Type", "value": "application/json" }
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"reference\": \"file-ref-001\",\n  \"purpose\": \"kyc_document\",\n  \"content_type\": \"image/jpeg\"\n}"
+						},
+						"url": { "raw": "{{base_url}}/v1/wallets/files/generate-upload-url", "host": ["{{base_url}}"], "path": ["v1", "wallets", "files", "generate-upload-url"] }
+					}
+				}
+			]
+		},
+		{
+			"name": "Billing",
+			"item": [
+				{
+					"name": "List Plans",
+					"request": {
+						"method": "GET",
+						"header": [{ "key": "Authorization", "value": "Bearer {{admin_token}}" }],
+						"url": { "raw": "{{base_url}}/v1/billing/plans", "host": ["{{base_url}}"], "path": ["v1", "billing", "plans"] }
+					}
+				},
+				{
+					"name": "Get Subscription",
+					"request": {
+						"method": "GET",
+						"header": [{ "key": "Authorization", "value": "Bearer {{admin_token}}" }],
+						"url": { "raw": "{{base_url}}/v1/billing/subscription", "host": ["{{base_url}}"], "path": ["v1", "billing", "subscription"] }
+					}
+				},
+				{
+					"name": "Subscribe",
+					"request": {
+						"method": "POST",
+						"header": [
+							{ "key": "Authorization", "value": "Bearer {{admin_token}}" },
+							{ "key": "Content-Type", "value": "application/json" }
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"tier\": \"growth\",\n  \"callback_url\": \"https://app.payflow.io/billing\"\n}"
+						},
+						"url": { "raw": "{{base_url}}/v1/billing/subscribe", "host": ["{{base_url}}"], "path": ["v1", "billing", "subscribe"] }
+					}
+				},
+				{
+					"name": "Cancel Subscription",
+					"request": {
+						"method": "POST",
+						"header": [{ "key": "Authorization", "value": "Bearer {{admin_token}}" }],
+						"url": { "raw": "{{base_url}}/v1/billing/cancel", "host": ["{{base_url}}"], "path": ["v1", "billing", "cancel"] }
+					}
+				},
+				{
+					"name": "List Invoices",
+					"request": {
+						"method": "GET",
+						"header": [{ "key": "Authorization", "value": "Bearer {{admin_token}}" }],
+						"url": { "raw": "{{base_url}}/v1/billing/invoices?page=1&limit=20", "host": ["{{base_url}}"], "path": ["v1", "billing", "invoices"], "query": [{ "key": "page", "value": "1" }, { "key": "limit", "value": "20" }] }
+					}
+				}
+			]
+		},
+		{
+			"name": "Loans",
+			"item": [
+				{
+					"name": "Create Loan",
+					"request": {
+						"method": "POST",
+						"header": [
+							{ "key": "Authorization", "value": "Bearer {{admin_token}}" },
+							{ "key": "Content-Type", "value": "application/json" }
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"employee_id\": 1,\n  \"loan_amount\": 50000000,\n  \"monthly_deduction\": 5000000,\n  \"start_date\": \"2026-07-01\",\n  \"description\": \"Staff emergency loan\"\n}"
+						},
+						"url": { "raw": "{{base_url}}/v1/loans", "host": ["{{base_url}}"], "path": ["v1", "loans"] }
+					}
+				},
+				{
+					"name": "List Loans",
+					"request": {
+						"method": "GET",
+						"header": [{ "key": "Authorization", "value": "Bearer {{admin_token}}" }],
+						"url": { "raw": "{{base_url}}/v1/loans?page=1&limit=20", "host": ["{{base_url}}"], "path": ["v1", "loans"], "query": [{ "key": "page", "value": "1" }, { "key": "limit", "value": "20" }] }
+					}
+				},
+				{
+					"name": "Cancel Loan",
+					"request": {
+						"method": "PATCH",
+						"header": [{ "key": "Authorization", "value": "Bearer {{admin_token}}" }],
+						"url": { "raw": "{{base_url}}/v1/loans/1/cancel", "host": ["{{base_url}}"], "path": ["v1", "loans", "1", "cancel"] }
+					}
+				}
+			]
+		},
+		{
+			"name": "Leave Management",
+			"item": [
+				{
+					"name": "List Leave Types",
+					"request": {
+						"method": "GET",
+						"header": [{ "key": "Authorization", "value": "Bearer {{admin_token}}" }],
+						"url": { "raw": "{{base_url}}/v1/leave/types", "host": ["{{base_url}}"], "path": ["v1", "leave", "types"] }
+					}
+				},
+				{
+					"name": "Create Leave Type",
+					"request": {
+						"method": "POST",
+						"header": [
+							{ "key": "Authorization", "value": "Bearer {{admin_token}}" },
+							{ "key": "Content-Type", "value": "application/json" }
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"name\": \"Annual Leave\",\n  \"default_days\": 20,\n  \"requires_approval\": true\n}"
+						},
+						"url": { "raw": "{{base_url}}/v1/leave/types", "host": ["{{base_url}}"], "path": ["v1", "leave", "types"] }
+					}
+				},
+				{
+					"name": "Submit Leave Request",
+					"request": {
+						"method": "POST",
+						"header": [
+							{ "key": "Authorization", "value": "Bearer {{admin_token}}" },
+							{ "key": "Content-Type", "value": "application/json" }
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"employee_id\": 1,\n  \"leave_type_id\": 1,\n  \"start_date\": \"2026-07-01T00:00:00Z\",\n  \"end_date\": \"2026-07-10T00:00:00Z\",\n  \"reason\": \"Family vacation\"\n}"
+						},
+						"url": { "raw": "{{base_url}}/v1/leave/requests", "host": ["{{base_url}}"], "path": ["v1", "leave", "requests"] }
+					}
+				},
+				{
+					"name": "List Leave Requests",
+					"request": {
+						"method": "GET",
+						"header": [{ "key": "Authorization", "value": "Bearer {{admin_token}}" }],
+						"url": { "raw": "{{base_url}}/v1/leave/requests?page=1&limit=20", "host": ["{{base_url}}"], "path": ["v1", "leave", "requests"], "query": [{ "key": "page", "value": "1" }, { "key": "limit", "value": "20" }] }
+					}
+				},
+				{
+					"name": "Approve Leave Request",
+					"request": {
+						"method": "POST",
+						"header": [{ "key": "Authorization", "value": "Bearer {{admin_token}}" }],
+						"url": { "raw": "{{base_url}}/v1/leave/requests/1/approve", "host": ["{{base_url}}"], "path": ["v1", "leave", "requests", "1", "approve"] }
+					}
+				},
+				{
+					"name": "Reject Leave Request",
+					"request": {
+						"method": "POST",
+						"header": [
+							{ "key": "Authorization", "value": "Bearer {{admin_token}}" },
+							{ "key": "Content-Type", "value": "application/json" }
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"reason\": \"Insufficient staff coverage\"\n}"
+						},
+						"url": { "raw": "{{base_url}}/v1/leave/requests/1/reject", "host": ["{{base_url}}"], "path": ["v1", "leave", "requests", "1", "reject"] }
+					}
+				},
+				{
+					"name": "Get Leave Balances",
+					"request": {
+						"method": "GET",
+						"header": [{ "key": "Authorization", "value": "Bearer {{admin_token}}" }],
+						"url": { "raw": "{{base_url}}/v1/leave/balances/1?year=2026", "host": ["{{base_url}}"], "path": ["v1", "leave", "balances", "1"], "query": [{ "key": "year", "value": "2026" }] }
+					}
+				}
+			]
+		},
+		{
+			"name": "Notifications",
+			"item": [
+				{
+					"name": "List Notifications",
+					"request": {
+						"method": "GET",
+						"header": [{ "key": "Authorization", "value": "Bearer {{admin_token}}" }],
+						"url": { "raw": "{{base_url}}/v1/notifications?page=1&limit=20", "host": ["{{base_url}}"], "path": ["v1", "notifications"], "query": [{ "key": "page", "value": "1" }, { "key": "limit", "value": "20" }] }
+					}
+				},
+				{
+					"name": "Unread Count",
+					"request": {
+						"method": "GET",
+						"header": [{ "key": "Authorization", "value": "Bearer {{admin_token}}" }],
+						"url": { "raw": "{{base_url}}/v1/notifications/unread-count", "host": ["{{base_url}}"], "path": ["v1", "notifications", "unread-count"] }
+					}
+				},
+				{
+					"name": "Mark as Read",
+					"request": {
+						"method": "PATCH",
+						"header": [{ "key": "Authorization", "value": "Bearer {{admin_token}}" }],
+						"url": { "raw": "{{base_url}}/v1/notifications/1/read", "host": ["{{base_url}}"], "path": ["v1", "notifications", "1", "read"] }
+					}
+				},
+				{
+					"name": "Mark All as Read",
+					"request": {
+						"method": "PATCH",
+						"header": [{ "key": "Authorization", "value": "Bearer {{admin_token}}" }],
+						"url": { "raw": "{{base_url}}/v1/notifications/read-all", "host": ["{{base_url}}"], "path": ["v1", "notifications", "read-all"] }
+					}
+				}
+			]
+		},
+		{
+			"name": "Verification",
+			"item": [
+				{
+					"name": "Verify Bank Account",
+					"request": {
+						"method": "GET",
+						"header": [{ "key": "Authorization", "value": "Bearer {{admin_token}}" }],
+						"url": { "raw": "{{base_url}}/v1/verify/bank-account?bank_code=058&account_number=0123456789", "host": ["{{base_url}}"], "path": ["v1", "verify", "bank-account"], "query": [{ "key": "bank_code", "value": "058" }, { "key": "account_number", "value": "0123456789" }] }
+					}
+				},
+				{
+					"name": "Verify BVN",
+					"request": {
+						"method": "GET",
+						"header": [{ "key": "Authorization", "value": "Bearer {{admin_token}}" }],
+						"url": { "raw": "{{base_url}}/v1/verify/bvn?bvn=12345678901", "host": ["{{base_url}}"], "path": ["v1", "verify", "bvn"], "query": [{ "key": "bvn", "value": "12345678901" }] }
+					}
+				}
+			]
+		},
+		{
+			"name": "Self-Service",
+			"item": [
+				{
+					"name": "Get Profile",
+					"request": {
+						"method": "GET",
+						"header": [{ "key": "Authorization", "value": "Bearer {{employee_token}}" }],
+						"url": { "raw": "{{base_url}}/v1/me/profile", "host": ["{{base_url}}"], "path": ["v1", "me", "profile"] }
+					}
+				},
+				{
+					"name": "Update Bank Details",
+					"request": {
+						"method": "PATCH",
+						"header": [
+							{ "key": "Authorization", "value": "Bearer {{employee_token}}" },
+							{ "key": "Content-Type", "value": "application/json" }
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"bank_name\": \"GTBank\",\n  \"bank_code\": \"058\",\n  \"bank_account_number\": \"0123456789\"\n}"
+						},
+						"url": { "raw": "{{base_url}}/v1/me/bank-details", "host": ["{{base_url}}"], "path": ["v1", "me", "bank-details"] }
+					}
+				},
+				{
+					"name": "Get Payslips",
+					"request": {
+						"method": "GET",
+						"header": [{ "key": "Authorization", "value": "Bearer {{employee_token}}" }],
+						"url": { "raw": "{{base_url}}/v1/me/payslips", "host": ["{{base_url}}"], "path": ["v1", "me", "payslips"] }
+					}
+				}
+			]
+		},
+		{
+			"name": "Business Settings",
+			"item": [
+				{
+					"name": "Get Settings",
+					"request": {
+						"method": "GET",
+						"header": [{ "key": "Authorization", "value": "Bearer {{admin_token}}" }],
+						"url": { "raw": "{{base_url}}/v1/business/settings", "host": ["{{base_url}}"], "path": ["v1", "business", "settings"] }
+					}
+				},
+				{
+					"name": "Update Settings",
+					"request": {
+						"method": "PATCH",
+						"header": [
+							{ "key": "Authorization", "value": "Bearer {{admin_token}}" },
+							{ "key": "Content-Type", "value": "application/json" }
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"pension_enabled\": true,\n  \"nhf_enabled\": false,\n  \"paye_enabled\": true,\n  \"payroll_requires_approval\": true\n}"
+						},
+						"url": { "raw": "{{base_url}}/v1/business/settings", "host": ["{{base_url}}"], "path": ["v1", "business", "settings"] }
+					}
+				},
+				{
+					"name": "List Provider Keys",
+					"request": {
+						"method": "GET",
+						"header": [{ "key": "Authorization", "value": "Bearer {{admin_token}}" }],
+						"url": { "raw": "{{base_url}}/v1/business/provider-keys", "host": ["{{base_url}}"], "path": ["v1", "business", "provider-keys"] }
+					}
+				},
+				{
+					"name": "Set Provider Key",
+					"request": {
+						"method": "PUT",
+						"header": [
+							{ "key": "Authorization", "value": "Bearer {{admin_token}}" },
+							{ "key": "Content-Type", "value": "application/json" }
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"value\": \"sk_live_abc123...\"\n}"
+						},
+						"url": { "raw": "{{base_url}}/v1/business/provider-keys/paystack/secret_key", "host": ["{{base_url}}"], "path": ["v1", "business", "provider-keys", "paystack", "secret_key"] }
+					}
+				},
+				{
+					"name": "Delete Provider Key",
+					"request": {
+						"method": "DELETE",
+						"header": [{ "key": "Authorization", "value": "Bearer {{admin_token}}" }],
+						"url": { "raw": "{{base_url}}/v1/business/provider-keys/paystack/secret_key", "host": ["{{base_url}}"], "path": ["v1", "business", "provider-keys", "paystack", "secret_key"] }
+					}
+				}
+			]
+		},
+		{
+			"name": "Audit Logs",
+			"item": [
+				{
+					"name": "List Audit Logs",
+					"request": {
+						"method": "GET",
+						"header": [{ "key": "Authorization", "value": "Bearer {{admin_token}}" }],
+						"url": { "raw": "{{base_url}}/v1/audit-logs?page=1&limit=20", "host": ["{{base_url}}"], "path": ["v1", "audit-logs"], "query": [{ "key": "page", "value": "1" }, { "key": "limit", "value": "20" }] }
+					}
+				}
+			]
+		},
+		{
+			"name": "Dashboard",
+			"item": [
+				{
+					"name": "Get Dashboard Summary",
+					"request": {
+						"method": "GET",
+						"header": [{ "key": "Authorization", "value": "Bearer {{admin_token}}" }],
+						"url": { "raw": "{{base_url}}/v1/dashboard", "host": ["{{base_url}}"], "path": ["v1", "dashboard"] }
+					}
+				}
+			]
+		},
+		{
+			"name": "Platform Admin",
+			"item": [
+				{
+					"name": "Get Platform Stats",
+					"request": {
+						"method": "GET",
+						"header": [{ "key": "Authorization", "value": "Bearer {{admin_token}}" }],
+						"url": { "raw": "{{base_url}}/platform/stats", "host": ["{{base_url}}"], "path": ["platform", "stats"] }
+					}
+				},
+				{
+					"name": "List Organizations",
+					"request": {
+						"method": "GET",
+						"header": [{ "key": "Authorization", "value": "Bearer {{admin_token}}" }],
+						"url": { "raw": "{{base_url}}/platform/organizations?page=1&limit=20", "host": ["{{base_url}}"], "path": ["platform", "organizations"], "query": [{ "key": "page", "value": "1" }, { "key": "limit", "value": "20" }] }
+					}
+				},
+				{
+					"name": "Suspend Organization",
+					"request": {
+						"method": "POST",
+						"header": [
+							{ "key": "Authorization", "value": "Bearer {{admin_token}}" },
+							{ "key": "Content-Type", "value": "application/json" }
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"reason\": \"Terms of service violation\"\n}"
+						},
+						"url": { "raw": "{{base_url}}/platform/organizations/1/suspend", "host": ["{{base_url}}"], "path": ["platform", "organizations", "1", "suspend"] }
+					}
+				},
+				{
+					"name": "Activate Organization",
+					"request": {
+						"method": "POST",
+						"header": [{ "key": "Authorization", "value": "Bearer {{admin_token}}" }],
+						"url": { "raw": "{{base_url}}/platform/organizations/1/activate", "host": ["{{base_url}}"], "path": ["platform", "organizations", "1", "activate"] }
+					}
+				},
+				{
+					"name": "List Platform Settings",
+					"request": {
+						"method": "GET",
+						"header": [{ "key": "Authorization", "value": "Bearer {{admin_token}}" }],
+						"url": { "raw": "{{base_url}}/platform/settings", "host": ["{{base_url}}"], "path": ["platform", "settings"] }
+					}
+				},
+				{
+					"name": "Set Platform Setting",
+					"request": {
+						"method": "PUT",
+						"header": [
+							{ "key": "Authorization", "value": "Bearer {{admin_token}}" },
+							{ "key": "Content-Type", "value": "application/json" }
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"value\": \"sk_live_...\",\n  \"description\": \"Production Paystack key\",\n  \"category\": \"payment_providers\"\n}"
+						},
+						"url": { "raw": "{{base_url}}/platform/settings/paystack_secret_key", "host": ["{{base_url}}"], "path": ["platform", "settings", "paystack_secret_key"] }
+					}
+				},
+				{
+					"name": "Delete Platform Setting",
+					"request": {
+						"method": "DELETE",
+						"header": [{ "key": "Authorization", "value": "Bearer {{admin_token}}" }],
+						"url": { "raw": "{{base_url}}/platform/settings/paystack_secret_key", "host": ["{{base_url}}"], "path": ["platform", "settings", "paystack_secret_key"] }
+					}
+				},
+				{
+					"name": "Trigger Provider Reconciliation",
+					"request": {
+						"method": "GET",
+						"header": [{ "key": "Authorization", "value": "Bearer {{admin_token}}" }],
+						"url": { "raw": "{{base_url}}/platform/reconciliation/provider", "host": ["{{base_url}}"], "path": ["platform", "reconciliation", "provider"] }
 					}
 				}
 			]
