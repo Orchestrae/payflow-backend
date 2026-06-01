@@ -99,6 +99,18 @@ func main() {
 		log.Info().Msg("ℹ️  Run migrations manually: make migrate-up (or use golang-migrate CLI)")
 	}
 
+	// Read replica DB (optional — fallback to primary if not configured)
+	readDB := db
+	if cfg.DatabaseReadURL != "" {
+		readDB, err = database.NewPostgresDB(cfg.DatabaseReadURL)
+		if err != nil {
+			log.Warn().Err(err).Msg("Failed to connect to read replica — using primary DB for reads")
+			readDB = db
+		} else {
+			log.Info().Msg("Read replica database connected")
+		}
+	}
+
 	// Repositories
 	txer := postgres.NewTransactioner(db)
 	userRepo := postgres.NewUserRepository(db)
@@ -241,7 +253,7 @@ func main() {
 	log.Info().Msg("Business, audit, notification services initialized")
 
 	// Ledger (double-entry accounting)
-	ledgerRepo := postgres.NewLedgerRepository(db)
+	ledgerRepo := postgres.NewLedgerRepository(readDB) // Use read replica for ledger queries
 	ledgerSvc := service.NewLedgerService(ledgerRepo)
 	log.Info().Msg("Ledger service initialized")
 

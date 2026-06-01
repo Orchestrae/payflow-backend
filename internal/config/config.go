@@ -65,6 +65,9 @@ type Config struct {
 	// VFD Webhook Verification
 	VFDWebhookSecret string `mapstructure:"VFD_WEBHOOK_SECRET"`
 
+	// Read Replica Configuration
+	DatabaseReadURL string `mapstructure:"DATABASE_READ_URL"` // Optional: read replica for report/ledger queries
+
 	// Database Migration Configuration
 	EnableAutoMigration bool `mapstructure:"ENABLE_AUTO_MIGRATION"` // Set to false in production - use traditional migrations only
 }
