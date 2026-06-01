@@ -29,6 +29,8 @@ type PayrollRun struct {
 	RejectionReason  string        `gorm:"size:500" json:"rejection_reason,omitempty"`
 	TotalEmployerCosts int64       `gorm:"default:0" json:"total_employer_costs"`
 	TotalCostToCompany int64       `gorm:"default:0" json:"total_cost_to_company"`
+	ProcessingJobID    string      `gorm:"size:100" json:"processing_job_id,omitempty"`
+	ProcessingError    string      `gorm:"size:1000" json:"processing_error,omitempty"`
 
 	// Relationships
 	Entries []PayrollRunEntry `gorm:"foreignKey:PayrollRunID" json:"entries"`

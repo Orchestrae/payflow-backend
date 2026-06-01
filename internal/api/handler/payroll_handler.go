@@ -152,7 +152,13 @@ func (h *PayrollHandler) SubmitForApproval(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	response.RespondWithJSON(w, http.StatusOK, updatedRun)
+	// Return 202 Accepted with job tracking info
+	response.RespondWithJSON(w, http.StatusAccepted, map[string]interface{}{
+		"payroll_run": updatedRun,
+		"job_id":      updatedRun.ProcessingJobID,
+		"status":      updatedRun.Status,
+		"message":     "Payroll submitted for processing",
+	})
 }
 
 // ApprovePayrollRun handles POST /payroll-runs/{runID}/approve
@@ -296,6 +302,36 @@ func (h *PayrollHandler) GetPayrollRunByID(w http.ResponseWriter, r *http.Reques
 	}
 
 	response.RespondWithJSON(w, http.StatusOK, run)
+}
+
+// GetPayrollStatus handles GET /payroll-runs/{runID}/status
+// Returns the current processing status for polling
+func (h *PayrollHandler) GetPayrollStatus(w http.ResponseWriter, r *http.Request) {
+	runID, err := strconv.ParseUint(chi.URLParam(r, "runID"), 10, 32)
+	if err != nil {
+		response.RespondWithError(w, domain.ErrValidationFailed)
+		return
+	}
+
+	claims, ok := middleware.GetClaimsFromContext(r.Context())
+	if !ok {
+		response.RespondWithError(w, domain.ErrInternalServer)
+		return
+	}
+
+	run, err := h.payrollService.GetByID(r.Context(), uint(runID), claims.BusinessID)
+	if err != nil {
+		response.RespondWithError(w, err)
+		return
+	}
+
+	response.RespondWithJSON(w, http.StatusOK, map[string]interface{}{
+		"id":               run.ID,
+		"status":           run.Status,
+		"processing_job_id": run.ProcessingJobID,
+		"processing_error":  run.ProcessingError,
+		"processed_at":      run.ProcessedAt,
+	})
 }
 
 // AmendPayrollRun handles PUT /payroll-runs/{runID}/amend

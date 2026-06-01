@@ -291,6 +291,7 @@ func NewRouter(
 				r.Use(middleware.RoleMiddleware(domain.RoleAdmin, domain.RoleOperator, domain.RoleApprover))
 				r.Get("/", payrollHandler.ListPayrollRuns)
 				r.Get("/{runID}", payrollHandler.GetPayrollRunByID)
+				r.Get("/{runID}/status", payrollHandler.GetPayrollStatus)
 			})
 
 			// Admin and Approver can approve/reject payroll
