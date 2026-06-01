@@ -3,43 +3,326 @@ PAYFLOW - PROJECT CONTEXT
 Last updated: 2026-06-01
 ================================================================================
 
-## Overview
-PayFlow is a B2B payroll SaaS for African businesses (Nigeria, Ghana).
-Handles employee management, payroll calculation, tax compliance, wallet/payments, and HR functions.
+OVERVIEW
+--------
+PayFlow is a B2B multi-tenant payroll SaaS platform for Nigerian SMEs.
+Built with Go backend and React TypeScript frontend.
+Handles: employee management, salary structures, payroll processing with
+Nigerian tax compliance (PAYE, pension, NHF, NSITF), multi-provider fund
+disbursement, virtual wallets, leave management, loans, and billing.
 
-## Tech Stack
-- Backend: Go 1.26, Chi v5 router, GORM ORM, PostgreSQL, Redis, Asynq
-- Frontend: React 18, TypeScript, Vite, Tailwind CSS, TanStack Query, Zustand
-- Email: Brevo SMTP via Asynq async queue
-- Payments: Paystack, KoraPay, VFD
-- Deployment: Railway (backend), Vercel (frontend)
+TECH STACK
+----------
+Backend:  Go 1.26, Chi v5, GORM, PostgreSQL 16, Redis 7, Asynq
+Frontend: React 19, TypeScript, Vite, Tailwind CSS v4, TanStack Query v5,
+          Zustand, React Hook Form, Zod, React Router v7, Recharts,
+          Framer Motion, Lucide React
+Auth:     JWT (golang-jwt/v5), bcrypt passwords
+Email:    SMTP via Hermes v2 templates, async queue via Asynq
+PDF:      Maroto v2 (payslip generation)
+Providers: KoraPay (virtual accounts, transfers), Paystack (transfers,
+           billing, bank verification), VFD Bank (corporate accounts, transfers)
 
-## Current Migration Version: 000027
+CURRENT MIGRATION VERSION: 000027 (payroll job tracking)
 
-## Features
-- Multi-country payroll (Nigeria PAYE/Pension/NHF/NSITF, Ghana SSNIT)
-- Payroll lifecycle: create > submit > approve > process > complete
-- Multi-cadre salary structures with custom deduction rules
-- Employee management with CSV import and BVN verification
-- Business wallet with virtual accounts (KoraPay)
-- Deposits via Paystack Checkout (card, bank, USSD)
-- Double-entry accounting ledger with daily + weekly reconciliation
-- Transfer system with multi-provider fallback and circuit breaker
-- Leave management (types, requests, approval, balances)
-- Loan management with automatic payroll deductions
-- Employee self-service portal (separate auth + layout)
-- Org-specific provider key overrides (AES-256 encrypted)
-- Billing plans (Free/Growth/Enterprise via Paystack)
-- Platform admin (super admin dashboard, org management)
-- Redis cache for cadres, deductions, wallet balance
-- Read replica support for report queries
-- Async payroll processing with status polling
-- Velocity controls and anomaly detection
+================================================================================
+API ENDPOINTS (from internal/api/router.go)
+================================================================================
 
-## API: 90+ endpoints across Auth, Employees, Cadres, Payroll, Wallet, Leave, Loans, Transfers, Billing, Platform
+--- Health ---
+GET  /health                           Readiness probe (DB + Redis)
+GET  /health/live                      Liveness probe
 
-## Frontend: 50+ pages including admin dashboard, employee self-service portal, and public landing page
+--- Auth (public, rate-limited 5/sec) ---
+POST /v1/auth/register                 Register business + admin user
+POST /v1/auth/login                    Admin/operator/approver login
+POST /v1/auth/employee/login           Employee self-service login
+POST /v1/auth/accept-invitation        Accept role invitation
+POST /v1/auth/forgot-password          Request password reset
+POST /v1/auth/reset-password           Reset password with token
+POST /v1/auth/verify-email             Verify email with token
 
-## Tests: Integration (testcontainers), Security, E2E, Load (k6), Frontend (Vitest)
+--- Webhooks (public, provider-verified) ---
+POST /vfd/webhooks/inward-credit       VFD inward credit
+POST /vfd/webhooks/initial-inward-credit  VFD initial inward credit
+POST /vfd/webhooks/retrigger           VFD webhook retrigger
+POST /korapay/webhooks/deposit         KoraPay deposit webhook
+POST /paystack/webhooks/               Paystack transfer webhook
+POST /paystack/webhooks/billing        Paystack billing webhook
 
-## Background Jobs: Email delivery, Payroll processing, Daily reconciliation, Weekly provider reconciliation
+--- Dashboard (authenticated) ---
+GET  /v1/dashboard                     Business dashboard summary
+
+--- Notifications (authenticated) ---
+GET  /v1/notifications                 List notifications (paginated)
+GET  /v1/notifications/unread-count    Unread count
+PATCH /v1/notifications/{id}/read      Mark as read
+PATCH /v1/notifications/read-all       Mark all as read
+
+--- Verification (authenticated) ---
+GET  /v1/verify/bank-account           Verify bank account (Paystack)
+GET  /v1/verify/bvn                    Verify BVN
+POST /v1/auth/resend-verification      Resend email verification
+
+--- Self-Service (authenticated) ---
+GET  /v1/me/profile                    Employee profile
+PATCH /v1/me/bank-details              Update own bank details
+GET  /v1/me/payslips                   Employee payslip history
+
+--- Employees (admin, operator) ---
+POST /v1/employees                     Create employee
+POST /v1/employees/import              CSV bulk import
+GET  /v1/employees/import/template     Download CSV template
+GET  /v1/employees                     List employees
+GET  /v1/employees/{employeeID}        Get employee
+PUT  /v1/employees/{employeeID}        Update employee
+PATCH /v1/employees/{employeeID}/deactivate  Deactivate employee
+POST /v1/employees/{employeeID}/create-login  Create employee login
+
+--- Cadres (admin, operator) ---
+POST /v1/cadres                        Create salary structure
+GET  /v1/cadres                        List cadres
+GET  /v1/cadres/{cadreID}              Get cadre
+PUT  /v1/cadres/{cadreID}              Update cadre
+DELETE /v1/cadres/{cadreID}            Delete cadre
+
+--- Payroll Runs ---
+POST /v1/payroll-runs                  Create payroll run (admin, operator)
+POST /v1/payroll-runs/{runID}/submit   Submit for approval (admin, operator)
+POST /v1/payroll-runs/{runID}/process-now  Process immediately (admin, operator)
+PUT  /v1/payroll-runs/{runID}/amend    Amend draft run (admin, operator)
+POST /v1/payroll-runs/{runID}/reverse  Reverse completed run (admin, operator)
+GET  /v1/payroll-runs                  List runs (admin, operator, approver)
+GET  /v1/payroll-runs/{runID}          Get run detail (admin, operator, approver)
+GET  /v1/payroll-runs/{runID}/status   Poll processing status (admin, operator, approver)
+POST /v1/payroll-runs/{runID}/approve  Approve run (admin, approver)
+POST /v1/payroll-runs/{runID}/reject   Reject run (admin, approver)
+
+--- Payroll Reports (admin, operator) ---
+GET  /v1/payroll-runs/{runID}/reports/paye           PAYE tax return (CSV)
+GET  /v1/payroll-runs/{runID}/reports/pension         Pension schedule (CSV)
+GET  /v1/payroll-runs/{runID}/reports/nhf             NHF schedule (CSV)
+GET  /v1/payroll-runs/{runID}/reports/bank-schedule   Bank schedule (CSV)
+GET  /v1/payroll-runs/{runID}/reports/summary         Payroll summary (CSV)
+GET  /v1/payroll-runs/{runID}/payslips                All payslips (ZIP of PDFs)
+GET  /v1/payroll-runs/{runID}/payslips/{employeeID}   Individual payslip (PDF)
+
+--- Deduction Rules (admin only) ---
+POST /v1/deduction-rules               Create custom deduction
+GET  /v1/deduction-rules               List deduction rules
+PUT  /v1/deduction-rules/{ruleID}      Update deduction rule
+DELETE /v1/deduction-rules/{ruleID}    Delete deduction rule
+
+--- Business Settings (admin only) ---
+GET  /v1/business/settings             Get settings
+PATCH /v1/business/settings            Update settings
+GET  /v1/business/provider-keys        List org provider key overrides
+PUT  /v1/business/provider-keys/{provider}/{key}  Set provider key
+DELETE /v1/business/provider-keys/{provider}/{key} Delete provider key
+POST /v1/auth/invite                   Invite user (admin only)
+GET  /v1/audit-logs                    Audit logs (admin only)
+
+--- Loans (admin, operator) ---
+POST /v1/loans                         Create employee loan
+GET  /v1/loans                         List loans
+PATCH /v1/loans/{id}/cancel            Cancel loan
+
+--- Leave Management (authenticated) ---
+GET  /v1/leave/types                   List leave types
+POST /v1/leave/types                   Create leave type
+POST /v1/leave/requests                Submit leave request
+GET  /v1/leave/requests                List leave requests
+POST /v1/leave/requests/{id}/approve   Approve request
+POST /v1/leave/requests/{id}/reject    Reject request
+GET  /v1/leave/balances/{employeeID}   Get leave balances
+
+--- Transfers (authenticated, velocity-limited) ---
+POST /v1/transfers                     Single transfer (10/hr, 50/day)
+POST /v1/transfers/batch               Batch transfer (5/hr, 20/day)
+GET  /v1/transfers                     List transfers (paginated)
+GET  /v1/transfers/{id}                Get transfer
+POST /v1/transfers/{id}/retry          Retry failed transfer
+
+--- VFD Transfers (authenticated, legacy) ---
+GET  /v1/vfd/transfers/account-enquiry
+GET  /v1/vfd/transfers/beneficiary-enquiry
+GET  /v1/vfd/transfers/banks
+POST /v1/vfd/transfers/initiate
+GET  /v1/vfd/transfers
+GET  /v1/vfd/transfers/{id}
+GET  /v1/vfd/transfers/from-account
+GET  /v1/vfd/transfers/to-account
+
+--- VFD Webhooks (authenticated, viewer) ---
+GET  /v1/vfd/webhooks
+GET  /v1/vfd/webhooks/{id}
+GET  /v1/vfd/webhooks/account/{accountNumber}
+
+--- Wallet (authenticated) ---
+POST /v1/wallets/virtual-account       Create virtual bank account
+GET  /v1/wallets                       Get wallet
+GET  /v1/wallets/balance               Get balance
+GET  /v1/wallets/transactions          List transactions (paginated)
+POST /v1/wallets/deposit               Initiate Paystack deposit
+GET  /v1/wallets/ledger                Ledger entries (paginated)
+GET  /v1/wallets/reconcile             Run reconciliation
+POST /v1/wallets/account-holders       Create KYC account holder
+GET  /v1/wallets/account-holders/{ref}/details   Get account holder
+PATCH /v1/wallets/account-holders/{ref}/update-kyc  Update KYC
+POST /v1/wallets/files/generate-upload-url  Generate file upload URL
+POST /v1/wallets/sandbox/credit        Sandbox wallet credit (admin only)
+
+--- Billing (authenticated) ---
+GET  /v1/billing/plans                 List subscription plans
+GET  /v1/billing/subscription          Get current subscription
+POST /v1/billing/subscribe             Subscribe to plan
+POST /v1/billing/cancel                Cancel subscription
+GET  /v1/billing/invoices              List invoices (paginated)
+
+--- Platform Admin (super_admin only) ---
+GET  /platform/stats                   Platform-wide statistics
+GET  /platform/organizations           List all organizations
+POST /platform/organizations/{id}/suspend   Suspend organization
+POST /platform/organizations/{id}/activate  Activate organization
+GET  /platform/settings                List platform settings
+PUT  /platform/settings/{key}          Set platform setting
+DELETE /platform/settings/{key}        Delete platform setting
+GET  /platform/reconciliation/provider Trigger provider reconciliation
+
+================================================================================
+FRONTEND PAGES (from frontend/src/routes.tsx)
+================================================================================
+
+--- Public ---
+/                               Landing page
+/login                          Admin login
+/register                       Business registration
+/employee-login                 Employee self-service login
+/accept-invitation              Accept role invitation
+/forgot-password                Forgot password
+/reset-password                 Reset password
+/verify-email                   Email verification
+
+--- Employee Self-Service Portal ---
+/self-service/dashboard         Employee dashboard
+/self-service/payslips          View payslips
+/self-service/leave             Leave requests
+/self-service/profile           Profile & bank details
+/self-service/loans             Loan information
+
+--- Admin Dashboard ---
+/dashboard                      Business dashboard (all roles)
+/employees                      Employee list (admin, operator)
+/employees/new                  Create employee
+/employees/:id/edit             Edit employee
+/employees/import               Bulk CSV import
+/cadres                         Cadre list (admin, operator)
+/cadres/new                     Create cadre
+/cadres/:id/edit                Edit cadre
+/deductions                     Deduction rules (admin)
+/deductions/new                 Create deduction
+/deductions/:id/edit            Edit deduction
+/payroll                        Payroll runs (admin, operator, approver)
+/payroll/new                    Create payroll run
+/payroll/:id                    Payroll run detail
+/transfers                      Transfer list (all)
+/transfers/new                  New transfer
+/transfers/batch                Batch transfer
+/wallet                         Wallet overview (all)
+/wallet/transactions            Transaction history
+/wallet/ledger                  Ledger view
+/settings                       Business settings (admin)
+/settings/invite                Invite user
+/settings/team                  Team members
+/settings/audit-logs            Audit logs
+/notifications                  Notification list (all)
+/loans                          Loan list (admin, operator)
+/loans/new                      Create loan
+/leave                          Leave management (admin, operator, approver)
+/leave/types/new                Create leave type
+/billing                        Subscription plans (admin)
+/billing/subscription           Current subscription
+/platform                       Platform dashboard (super_admin)
+/platform/organizations         Organization list
+/platform/settings              Platform settings
+/platform/reconciliation        Reconciliation dashboard
+
+================================================================================
+BACKGROUND JOBS
+================================================================================
+
+1. Payroll Payout Processing
+   - Triggered after payroll approval
+   - Processes transfers for each employee
+   - Uses Asynq (Redis) or gocron (in-memory fallback)
+
+2. Async Email Delivery
+   - Invitation emails, password resets, payroll notifications
+   - Queued via Asynq with retry logic
+   - Falls back to synchronous if no Redis
+
+3. Daily Reconciliation
+   - Runs 1 min after startup, then every 24 hours
+   - Verifies wallet balances match ledger totals
+
+4. Weekly Provider Reconciliation
+   - Runs 5 min after startup, then every 7 days
+   - Cross-checks transfers with payment provider APIs
+
+================================================================================
+ROLES
+================================================================================
+
+super_admin  - Platform-wide access (all orgs, settings, reconciliation)
+admin        - Full access to own business
+operator     - Employee management, payroll creation, transfers, loans
+approver     - View and approve/reject payroll runs
+employee     - Self-service portal (profile, payslips, leave)
+
+================================================================================
+FILE/FOLDER STRUCTURE
+================================================================================
+
+payflow/
+  cmd/server/main.go               Entry point, dependency wiring (6 phases)
+  internal/
+    api/
+      handler/                      29 handler files (one per domain)
+      middleware/                    Auth, CORS, rate limiting, role guards
+      request/                      11 request DTO files
+      response/                     7 response DTO files
+      router.go                     All route definitions
+    config/config.go                All env var definitions (Viper)
+    domain/                         Models, errors, interfaces, constants
+    platform/
+      billing/                      Paystack billing client
+      cache/                        Redis client + CacheService
+      database/                     GORM init + auto-migration
+      email/                        SMTP + async email service
+      korapay/                      KoraPay API client + providers
+      paystack/                     Paystack API client + providers
+      scheduler/                    Asynq + gocron schedulers
+      vfd/                          VFD Bank API client
+    repository/
+      postgres/                     All PostgreSQL repository implementations
+    service/
+      platform/                     Billing + platform admin services
+      provider/                     Transfer provider manager + abstraction
+      report/                       CSV/PDF report generation
+      vfd/                          VFD-specific services
+      *.go                          Core service implementations
+  migrations/                       000001 through 000027 (up + down SQL)
+  frontend/
+    src/
+      api/                          Axios client
+      components/                   Shared UI components + layouts
+      hooks/                        Custom React hooks
+      pages/                        Page components organized by domain
+      routes.tsx                    All frontend routes
+      store/                        Zustand state stores
+      types/                        TypeScript type definitions
+      utils/                        Utility functions
+  docs/                             Documentation files
+  tests/                            Integration tests
+  Makefile                          Build, test, migration commands
+  docker-compose.yml                Local dev infrastructure
